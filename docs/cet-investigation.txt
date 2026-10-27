@@ -1,0 +1,42 @@
+CET continuation investigation, Windows 11 build 26100
+
+These are standalone diagnostic results. They do not establish CET support
+for the runtime, and no ASLR or shadow-stack workaround was adopted.
+
+The 24-case context matrix on 17b8435 compared NtContinue CONTEXT_FULL,
+explicit CONTEXT_SEGMENTS, CONTEXT_ALL and RtlRestoreContext with segments,
+with and without TF, directly and under CET/CET-strict launch policies.
+NtContinue reached the target instruction in CS 0x33 in every case, despite
+the requested CS 0x23. RtlRestoreContext entered CS 0x23 with CET disabled,
+including the requested single step, but remained in CS 0x33 under CET.
+Windows reports compatibility traps as STATUS_WX86_BREAKPOINT 0x4000001f
+and STATUS_WX86_SINGLE_STEP 0x4000001e. The later helper accepts both.
+
+The eight-case shadow-stack matrix on 6866071 compared normal and diagnostic
+low-VA helper images. With HIGH_ENTROPY_VA, native CET thread shadow-stack
+pointers were above 4 GiB. Native fiber shadow-stack allocation ignored the
+requested low SSP. NtCreateThreadEx ZeroBits values 0, 0x7fffffff and
+0xffffffff did not independently force low shadow stacks. The low-VA helper
+received low SSPs, but it disables HIGH_ENTROPY_VA and is not a runtime fix.
+
+The 36-case far-jump matrix on 2992062 compared normal, low-preferred-base
+and low-VA helper images, with and without MOV SS and TF. Far jumps reached
+CS 0x23 with CET disabled. With CET/CET-strict they failed with a high SSP,
+including when only the preferred image base was low. Disabling high-entropy
+VA allowed the diagnostic jump under CET, but every otherwise successful
+TF case trapped before the first guest instruction. MOV SS did not delay
+that trap. This does not preserve Wine's context-restoration semantics.
+
+The accepted runtime keeps Wine's IRETQ restore and HIGH_ENTROPY_VA. CET
+launches still fail with FAST_FAIL_CONTROL_INVALID_RETURN_ADDRESS 0x39.
+A solution must restore compatibility mode and valid shadow-stack state
+while preserving exception and debugger single-step behavior.
+
+Raw evidence directories in the local workspace:
+2026-10-27-wine-cet-context-luna/evidence/continuation-matrix/
+2026-10-27-wine-cet-shadow-luna/evidence/shadow-stack-lowssp/
+2026-10-27-wine-cet-jump-luna/evidence/jump-matrix/
+
+Each contains exact commands, policy flags, CS/IP/SSP values, file hashes
+and complete output. The helpers build through the pinned flake packages
+continuation-diagnostic and shadow-stack-diagnostic.
