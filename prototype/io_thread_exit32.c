@@ -81,7 +81,7 @@ void WINAPI app_entry(void)
 {
     for(const char *arg=GetCommandLineA();*arg;arg++)
         if(arg[0]=='-'&&arg[1]=='-'&&arg[2]=='s'&&arg[3]=='p'&&arg[4]=='i'&&arg[5]=='n'&&
-           (!arg[6]||arg[6]==' ')){spin_issuer=TRUE;break;}
+           (!arg[6]||arg[6]==' '||arg[6]=='\t'||arg[6]=='"')){spin_issuer=TRUE;break;}
     MESSAGE("io_thread_exit32 spin-issuer mode:\r\n");message_hex(spin_issuer);
     for(unsigned i=0;i<8;i++)
     {
