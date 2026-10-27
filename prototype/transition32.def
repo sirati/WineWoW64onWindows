@@ -1,0 +1,6 @@
+LIBRARY transition32.dll
+EXPORTS
+probe_gate_entries DATA
+probe_gate_trampolines DATA
+probe_gate_far DATA
+probe_gate_targets DATA

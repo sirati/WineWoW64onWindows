@@ -68,6 +68,11 @@ crtend=$($cc64 -print-file-name=crtend.o)
   prototype/out/libguest_ntdll.a -Wl,--entry,DllMain@12,--image-base,0x11000000,--add-stdcall-alias,--out-implib,prototype/out/libguest_kernel32.a \
   -o prototype/out/guest/kernel32.dll
 
+# Static image-backed gates contain both x86 entries and x64 trampolines.
+"$cc32" -shared -nostdlib prototype/transition32.S prototype/transition32.def \
+  -Wl,--entry,0,--image-base,0x20000000,--dynamicbase,--nxcompat \
+  -o prototype/out/guest/transition32.dll
+
 guest_flags=(-O2 -D_WIN32_WINNT=0x0601 -ffreestanding -fno-stack-protector -nostdlib)
 "$cc32" "${guest_flags[@]}" prototype/hello32.c -lkernel32 prototype/out/libguest_kernel32.a \
   -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/hello32.exe

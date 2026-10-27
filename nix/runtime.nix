@@ -63,7 +63,7 @@ in stdenv.mkDerivation {
     mkdir -p $out/runtime/guest $out/docs $tests/prototype
     cp prototype/out/wine-host.exe $out/runtime/
     cp -R prototype/out/stock-wine $out/runtime/
-    cp prototype/out/guest/{ntdll,kernel32,bootstrap32}.dll $out/runtime/guest/
+    cp prototype/out/guest/{ntdll,kernel32,bootstrap32,transition32}.dll $out/runtime/guest/
     cp -R prototype/out $tests/prototype/
     find $tests/prototype/out -maxdepth 1 -type f ! -name "*.exe" ! -name "*.dll" ! -name "*.txt" -delete
     cp prototype/*.ps1 $tests/prototype/

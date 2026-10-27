@@ -413,16 +413,44 @@ static NTSTATUS WINAPI bind_native_bridge(void *unused,void *image,void *unused2
     (void)unused;(void)unused2;(void)size;(void)alloc;(void)protect;
     return STATUS_SUCCESS;
 }
+struct far_thunk { BYTE code[16]; };
 #pragma pack(push,1)
-struct far_thunk { BYTE op,modrm; DWORD ptr,addr; WORD cs; BYTE jump64[6];uint64_t target64; };
+struct gate_far_pointer { DWORD address; WORD selector; };
 #pragma pack(pop)
-static void init_thunk(struct far_thunk *t,void *target,WORD cs)
+static struct far_thunk *map_transition_gates(WORD cs)
 {
-    /* The compatibility-mode far jump reaches a low x64 trampoline. Its
-     * RIP-relative indirect jump preserves every register and reaches an
-     * ASLR-placed native host above 4 GiB. */
-    t->op=0xff;t->modrm=0x2d;t->ptr=(DWORD)(uintptr_t)&t->addr;t->addr=(DWORD)(uintptr_t)t->jump64;t->cs=cs;
-    t->jump64[0]=0xff;t->jump64[1]=0x25;memset(t->jump64+2,0,4);t->target64=(uintptr_t)target;
+    HANDLE file=CreateFileA("guest/transition32.dll",GENERIC_READ|GENERIC_EXECUTE,
+                            FILE_SHARE_READ|FILE_SHARE_DELETE,NULL,OPEN_EXISTING,0,NULL),section=NULL;
+    if(file==INVALID_HANDLE_VALUE)fail("open transition image");
+    NTSTATUS status=NtCreateSection(&section,SECTION_MAP_READ|SECTION_MAP_WRITE|SECTION_MAP_EXECUTE,
+                                    NULL,NULL,PAGE_EXECUTE_READ,SEC_IMAGE,file);
+    CloseHandle(file);
+    if(status<0)fail("create transition image section");
+    void *base=(void *)0x20000000;SIZE_T size=0;
+    status=NtMapViewOfSection(section,GetCurrentProcess(),&base,0,0,NULL,&size,ViewUnmap,0,PAGE_READONLY);
+    if(status<0)for(uintptr_t address=0x10000000;address<0x70000000;address+=0x100000)
+    {
+        base=(void *)address;size=0;
+        status=NtMapViewOfSection(section,GetCurrentProcess(),&base,0,0,NULL,&size,ViewUnmap,0,PAGE_READONLY);
+        if(status>=0)break;
+    }
+    NtClose(section);
+    if(status<0)fail("map transition image below 4 GiB");
+    struct guest_module image={.base=base};
+    image.nt=(void *)((BYTE *)base+((IMAGE_DOS_HEADER *)base)->e_lfanew);
+    struct far_thunk *entries=guest_export(&image,"probe_gate_entries",0);
+    struct far_thunk *trampolines=guest_export(&image,"probe_gate_trampolines",0);
+    struct gate_far_pointer *far=guest_export(&image,"probe_gate_far",0);
+    uint64_t *targets=guest_export(&image,"probe_gate_targets",0);
+    if(!entries||!trampolines||!far||!targets)fail("transition image exports");
+    void *native_targets[]={syscall_32to64,unix_call_32to64,probe_exit64};
+    for(unsigned i=0;i<3;i++)
+    {
+        far[i].address=(DWORD)(uintptr_t)&trampolines[i];far[i].selector=cs;
+        targets[i]=(uintptr_t)native_targets[i];
+    }
+    printf("TRANSITION_IMAGE base=%p entries=%p\n",base,entries);
+    return entries;
 }
 LONG CALLBACK probe_on_exception(EXCEPTION_POINTERS *p)
 {
@@ -932,9 +960,7 @@ int main(int argc,char **argv)
         static const char *apis[]={"ExitProcess"};
         for(unsigned i=0;i<sizeof(apis)/sizeof(apis[0]);i++) { patch_guest_jump(kb,apis[i],bridge); patch_guest_jump(k32,apis[i],bridge); }
     }
-    struct far_thunk *gate=low_alloc(0x20000000,4096,PAGE_READWRITE);
-    if(!gate) fail("allocate gates");
-    init_thunk(&gate[0],syscall_32to64,cs);init_thunk(&gate[1],unix_call_32to64,cs);init_thunk(&gate[2],probe_exit64,cs);
+    struct far_thunk *gate=map_transition_gates(cs);
     guest_return_gate=&gate[2];
     probe_set_bop_code(&gate[0]);
     native_dispatch_table=table;guest_unix_gate=&gate[1];
@@ -949,9 +975,6 @@ int main(int argc,char **argv)
         BYTE *dst=guest_export(nt,"RtlGetVersion",0),*src=guest_export(bootstrap,"ProbeRtlGetVersion",0);
         dst[0]=0xe9;*(int32_t *)(dst+1)=(int32_t)(src-(dst+5));
     }
-    DWORD old;
-    if(!VirtualProtect(gate,4096,PAGE_EXECUTE_READ,&old))fail("gate protection");
-    FlushInstructionCache(GetCurrentProcess(),gate,4096);
     *(DWORD *)guest_export(nt,"__wine_syscall_dispatcher",0)=(DWORD)(uintptr_t)&gate[0];
     { void *u=guest_export(nt,"__wine_unix_call_dispatcher",0); if(u) *(DWORD *)(uintptr_t)u=(DWORD)(uintptr_t)&gate[1];
       void *h=guest_export(nt,"__wine_unixlib_handle",0); if(h) *(uint64_t *)(uintptr_t)h=(uint64_t)(uintptr_t)table; }
