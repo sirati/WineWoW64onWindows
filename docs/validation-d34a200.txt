@@ -1,0 +1,54 @@
+Nix Windows VM acceptance, 2026-10-27
+
+Frozen source: d34a200b1d754303652444d596ae9167566e139f
+Separate worktree: 2026-10-27-wine-image-bootstrap-luna
+Tester: Luna 6; no production edits. Windows 11 x64, build 26100.
+Windows verified all 86 manifest files before execution.
+Host SHA256: A6CFAF607992A0CD0A5C809A6CFC49C266533CF5B4A4926962E1B59398770203
+
+Nix runtime: /nix/store/8bhpy0dgbpq71ypy0mx8056rj1515hgb-wine-wow64-windows-11.0
+Runtime NAR: sha256-MReHD4PykzHQAaCGm0YW9sz2Nf2El5iEiSdkEroIt4c=
+Nix tests: /nix/store/a6cqb3cbpiin7ziiinv6ypgfiybvilql-wine-wow64-windows-11.0-tests
+Tests NAR: sha256-CqXMb1fZ1P+Ohdf9EgMumqR3W6NzGQZsw/sXacmbAbs=
+These store paths identify the tested outputs; they are not build inputs.
+
+| Check | Result |
+|---|---|
+| Cross suite | 29 cases, zero unexpected failures |
+| C++/SEH | Seven required cases passed; one known optional nested-return diagnostic failed |
+| Async I/O and named pipes | Six runs each, native control plus five Wine runs, all passed |
+| Sockets | DNS, TCP/UDP and extensions, 18 runs, all passed |
+| APC, IOCP, callbacks, thread context/creation | 34 runs, all passed; native controls where applicable, five Wine runs per fixture |
+| XSTATE, additional vector components, stack growth/overflow, fibers/overflow, protections | Seven fixtures, native plus five Wine runs each, all 42 passed |
+| Unmodified applications | 16 checks, zero required failures; archive hashes match, SQLite DB reopens in native Windows |
+| Original Wine debug routines | Main/worker fixture passed without an example native bridge |
+| ASLR and CFG launch policies | Passed; this does not establish guest CFG instrumentation/enforcement |
+| Dynamic-code prohibition | Child dynamic=1; bootstrap, Wine loader and hello32 completed with guest exit 0 |
+
+The bootstrap DLLs now use native SEC_IMAGE mappings. Windows chooses each
+canonical address and supplies relocations and page protections. Bootstrap
+IAT binding and runtime setup change data only. Application and dependency
+loading remains inside Wine. No native WoW64 application loader is substituted.
+
+Current limits
+
+CET remains incompatible with Wine's IRETQ restore, which previously produced
+c0000409 / FAST_FAIL_CONTROL_INVALID_RETURN_ADDRESS, 0x39. A standalone
+NtContinue diagnostic requested CS=0x23 but observed CS=0x33 at its trap on
+this Windows build. It therefore does not provide a compatibility-mode
+replacement for IRETQ. Single-step tests must check the code segment as well
+as the instruction pointer. The diagnostic's status 20 means its requested
+32-bit transition was not observed; it is not a runtime regression.
+
+Canonical bootstrap-address collisions cause an explicit startup failure.
+There is no fallback which rewrites executable pages. Relocation of normal
+application images and DLLs remains Wine's responsibility. GUI, ARM64 and
+additional NT services are excluded. The tested corpus does not establish
+universal unmodified application compatibility.
+
+Raw evidence remains outside Git in the frozen worktree's evidence directory:
+candidate-files.json, vm-test-bundle.zip, nix-path-info.json,
+vm-results/candidate-verification.txt and vm-results/results/. The result JSON
+files contain command lines, native controls, exits, timeouts and output.
+bootstrap-smoke includes queried policy flags and mapped DLL addresses.
+continuation-revised contains the independent NtContinue traces.

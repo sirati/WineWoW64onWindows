@@ -9,18 +9,27 @@ typedef LONG (NTAPI *map_t)(HANDLE,HANDLE,void **,ULONG_PTR,SIZE_T,LARGE_INTEGER
 typedef LONG (NTAPI *continue_t)(CONTEXT *,BOOLEAN);
 static ULONG_PTR guest_entry;
 static BOOL single_step;
+static volatile ULONG_PTR native_stack __attribute__((used));
 
-static LONG CALLBACK trap(EXCEPTION_POINTERS *exception)
+static LONG CALLBACK __attribute__((used,noreturn)) trap(EXCEPTION_POINTERS *exception)
 {
     CONTEXT *context=exception->ContextRecord;
     DWORD code=exception->ExceptionRecord->ExceptionCode;
-    ULONG_PTR expected=guest_entry+(single_step?1:2);
+    /* Windows reports a breakpoint context at INT3, a single-step context
+     * immediately after NOP. Both instructions occupy offset one here. */
+    ULONG_PTR expected=guest_entry+1;
     DWORD expected_code=single_step?EXCEPTION_SINGLE_STEP:EXCEPTION_BREAKPOINT;
     printf("CONTINUATION_TRAP code=%08lx cs=%04x ip=%llx sp=%llx flags=%08lx expected_ip=%llx\n",
            code,context->SegCs,(unsigned long long)context->Rip,(unsigned long long)context->Rsp,
            context->EFlags,(unsigned long long)expected);
     fflush(stdout);
     ExitProcess(code==expected_code&&context->SegCs==0x23&&context->Rip==expected?0:20);
+}
+/* Windows invokes the native VEH on the interrupted guest stack. The native
+ * CRT must run on the stack described by the native TEB, as in the port. */
+static LONG CALLBACK __attribute__((naked)) trap_entry(EXCEPTION_POINTERS *exception)
+{
+    __asm__ volatile("movq native_stack(%rip),%rsp\n\tandq $-16,%rsp\n\tsubq $0x20,%rsp\n\tcall trap\n\tud2");
 }
 
 int main(int argc,char **argv)
@@ -46,11 +55,12 @@ int main(int argc,char **argv)
     BYTE *stack=NULL;
     for(ULONG_PTR address=0x30000000;address<0x70000000&&!stack;address+=0x100000)
         stack=VirtualAlloc((void *)address,0x10000,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);
-    if(!stack||!AddVectoredExceptionHandler(1,trap))return 6;
+    if(!stack||!AddVectoredExceptionHandler(1,trap_entry))return 6;
     DWORD policy=0;
     GetProcessMitigationPolicy(GetCurrentProcess(),ProcessUserShadowStackPolicy,&policy,sizeof(policy));
     CONTEXT context;
     RtlCaptureContext(&context);
+    native_stack=context.Rsp-0x100;
     context.ContextFlags=CONTEXT_FULL;
     context.Rip=guest_entry;context.Rsp=(ULONG_PTR)stack+0xff00;
     context.SegCs=0x23;context.SegSs=context.SegDs=context.SegEs=0x2b;

@@ -37,7 +37,7 @@ Verified milestones
   The 42f387d thread context, I/O notification, callbacks, stack growth and
   mitigation controls also pass.
 
-Latest accepted focused candidate
+Historical pre-Nix candidate
 
 7769bee6030d47025f490e67f8f1ffe0458b2e25, 139 execution inputs.
 Host SHA256 961AD66BC1B910970833D3FCDBDF93BBA7CFC2394A1572936FBAF086C2CCE80A.
@@ -67,7 +67,7 @@ error 1655. CET-enabled and CET-strict launch both exit with c0000409 at host RV
 the Wine IRETQ compatibility-mode restore. Exception info0 is hex 0x39,
 decimal 57, FAST_FAIL_CONTROL_INVALID_RETURN_ADDRESS. Raw policy logs and
 independent host disassembly are under evidence/final-runtime.
-These remain incompatibilities in the current bootstrap/transition design.
+These results describe the historical private bootstrap/transition mappings.
 No policy is disabled by the test launcher or the runtime.
 
 Test workflow and evidence
@@ -110,6 +110,64 @@ Raw reports and the candidate host hash are retained under
 evidence/final-runtime/xstate-components. This focused result does not replace
 the accepted full regression or prove every component's exception/APC path.
 
-6e6acd8 fiber switching passes native plus ten Wine runs. Fiber overflow passes
-natively and fails all ten Wine runs with c0000005. Broader regression results
-are retained in docs/regression-6e6acd8.txt. Fiber overflow is an open failure.
+6e6acd8 fiber switching passes native plus ten Wine runs. Fiber overflow passed
+natively and failed all ten Wine runs with c0000005. Broader regression results
+are retained in docs/regression-6e6acd8.txt. The later 758da9f adapter fixes this
+failure while retaining Wine's stack algorithms.
+
+Nix milestones
+
+758da9f: pinned Nix cross-build and fiber-stack adapter. Wine's original
+ProcessThreadStackAllocation request receives a logical stack reservation
+with an extra 64 KiB for Windows native exception dispatch below it. Native
+plus ten Wine runs pass both fiber switching and overflow/reset controls.
+
+c192826: image-backed, position-independent transition gates. No executable
+base relocations or instruction patching; a build-time PE checker verifies
+RX code and RW targets. A startup return frame is refreshed before every
+guest invocation. Full runtime, exception and unmodified-application checks
+pass. Reserving the normal gate address also passes at a different base.
+
+f011a08: initialize Wine current_version, debug-options storage and worker
+debug buffers, preserving the original Wine version and debug routines.
+Native stderr implements Wine's existing debug-write operation. Windows
+verified 86 bundled files; runtime/tests/deployed host SHA256 was
+678185A77AF9DB446068A0809AD69410D41FCE6BE07E5E0CB42BD0E567EF4051.
+Required cross, exception, socket, APC, IOCP, callback, context, XSTATE,
+stack and fiber tests pass, including native controls and five Wine repeats
+where applicable. Unmodified applications run with the example native bridge
+unset. 7-Zip archive hashes match and native Windows reopens the SQLite DB.
+The optional nested C++ returning-helper diagnostic still fails. Forced ASLR
+and CFG pass; dynamic-code prohibition fails at bootstrap protection, and
+CET fails at Wine IRETQ. Evidence is in the separate test worktree
+2026-10-27-wine-debug-version-luna/evidence/TEST-RESULTS.txt.
+
+7c1755b: small upstream Wine process-exit data hook replaces the last host
+instruction patch. The hook returns through the existing gate, after which
+the host invokes Wine shutdown. This is combined with the following change
+for VM acceptance.
+
+d34a200: map bootstrap DLLs with SEC_IMAGE and an unspecified address, using
+Windows' already-relocated canonical image view. The diagnostic measured the
+mapped ImageBase and HIGHLOW content against the raw file. Explicit address
+requests can return bytes relocated for the canonical address instead of the
+requested view. NULL mappings matched the mapped ImageBase even with dynamic
+code prohibited. Bootstrap setup now modifies data only; IAT data pages regain
+their original protection after binding. Application/dependency loading still
+runs through Wine LdrLoadDll. This candidate passes VM acceptance: 29 cross
+cases, seven required exception cases, 16 unmodified-application checks and
+the socket/APC/IOCP/callback/thread/context/vector/stack/fiber repeats.
+Dynamic-code policy reports dynamic=1 and hello32 exits 0. Exact hashes and
+counts are recorded in docs/validation-d34a200.txt.
+The bootstrap reports a clean failure if its canonical address is unavailable;
+arbitrary bootstrap rebasing is not implemented. Application relocation remains
+Wine's responsibility.
+
+CET continuation diagnostic
+
+The standalone Nix continuation-diagnostic output tests Windows NtContinue
+with a native CONTEXT requesting CS=0x23. Its first VEH runs on the saved
+native stack, as the port does. Windows 11 build 26100 reports CS=0x33 at
+the trap, so this did not enter compatibility mode. A successful trap at
+the expected IP alone would have been insufficient evidence. This diagnostic
+has no runtime dependency and does not replace Wine's transition code.

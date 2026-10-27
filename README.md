@@ -40,18 +40,27 @@ nix build '.#default^tests' --out-link result-tests
 ```
 
 Their example native x64 bridge DLL and test EXEs are excluded from the runtime
-output. `WINE_NATIVE_BRIDGE` can name an explicit native bridge DLL. Test runners explicitly select their `native64.dll` fixture through that
-variable. Standard applications can run without a native bridge DLL. Test runners and diagnostic
-helpers are not required at runtime. The optional `nix build .#corpus` downloads hash-pinned unmodified
-applications. Copy that output to `prototype/unmodified` beside the test
-runners. Windows VM execution remains a separate validation step. Mutable
-vendor URLs deliberately fail if their content no longer matches the pinned
-hash.
+output. `WINE_NATIVE_BRIDGE` can name an explicit native bridge DLL. Test runners
+select their `native64.dll` fixture through that variable. Standard applications
+run without a native bridge DLL. The optional `nix build .#corpus` downloads
+hash-pinned unmodified applications. Copy that output to `prototype/unmodified`
+beside the test runners. Mutable vendor URLs fail if their content no longer
+matches the pinned hash.
 
-This is still a port in development. The prior local build passed the headless
-application, sockets, APC, IOCP, context and stack controls described in
-[the compatibility report](prototype/README.txt). The Nix rebuild is undergoing
-validation; those previous results do not establish its runtime equivalence.
-Fiber switching passes, but fiber overflow recovery currently fails. Dynamic
-code prohibition and CET compatibility also remain open. Universal unmodified
+Windows VM execution is a separate validation step. Luna 6 runs those tests
+from a frozen, separate Git worktree. The test bundle records the commit and
+every deployed file's SHA256. Test runners and diagnostics are not runtime
+dependencies. The standalone image-mapping and context-continuation helpers
+are available through `nix build .#image-mapping-diagnostic` and
+`nix build .#continuation-diagnostic`. `nix develop` supplies Python for source
+and evidence helper scripts.
+
+This is still a port in development. Nix candidate `d34a200` passed the required
+headless application, socket, APC, IOCP, callback, thread, context, XSTATE,
+stack and fiber controls. Original Wine version and debug routines also pass.
+See [the compatibility report](prototype/README.txt) and
+[remaining work](prototype/REMAINING-WORK.txt) for the tested scope and limits.
+The image-backed bootstrap also runs a guest with dynamic-code prohibition
+enabled. See [the frozen candidate report](docs/validation-d34a200.txt) for
+hashes and acceptance results. CET remains open. Universal unmodified
 application compatibility is not established.
