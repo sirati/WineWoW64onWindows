@@ -11,6 +11,20 @@ typedef void (NTAPI *restore_t)(CONTEXT *,EXCEPTION_RECORD *);
 static ULONG_PTR guest_entry;
 static BOOL single_step;
 static volatile ULONG_PTR native_stack __attribute__((used));
+static struct __attribute__((packed)) { DWORD address; WORD selector; } jump_far __attribute__((used));
+
+static void __attribute__((naked,noreturn)) enter_jump(CONTEXT *context)
+{
+    __asm__ volatile("movq 0x98(%rcx),%r10\n\tsubq $8,%r10\n\t"
+                     "movl 0x44(%rcx),%eax\n\tmovq %rax,(%r10)\n\t"
+                     "movq %r10,%rsp\n\tpopfq\n\tljmp *jump_far(%rip)\n\tud2");
+}
+static void __attribute__((naked,noreturn)) enter_jump_movss(CONTEXT *context)
+{
+    __asm__ volatile("movq 0x98(%rcx),%r10\n\tsubq $8,%r10\n\t"
+                     "movl 0x44(%rcx),%eax\n\tmovq %rax,(%r10)\n\tmovw $0x2b,%dx\n\t"
+                     "movq %r10,%rsp\n\tpopfq\n\tmovw %dx,%ss\n\tljmp *jump_far(%rip)\n\tud2");
+}
 
 static LONG CALLBACK __attribute__((used,noreturn)) trap(EXCEPTION_POINTERS *exception)
 {
@@ -37,15 +51,18 @@ static LONG CALLBACK __attribute__((naked)) trap_entry(EXCEPTION_POINTERS *excep
 int main(int argc,char **argv)
 {
     if(argc<2)return 2;
-    DWORD flags=CONTEXT_FULL;BOOL restore=FALSE;
+    DWORD flags=CONTEXT_FULL;BOOL restore=FALSE,jump=FALSE,movss=FALSE;
     for(int i=2;i<argc;i++)
     {
         if(!strcmp(argv[i],"--single-step"))single_step=TRUE;
         else if(!strcmp(argv[i],"--segments"))flags|=CONTEXT_SEGMENTS;
         else if(!strcmp(argv[i],"--all"))flags=CONTEXT_ALL;
         else if(!strcmp(argv[i],"--restore"))restore=TRUE;
+        else if(!strcmp(argv[i],"--jump"))jump=TRUE;
+        else if(!strcmp(argv[i],"--mov-ss"))movss=TRUE;
         else return 2;
     }
+    if((jump&&restore)||(movss&&!jump))return 2;
     setvbuf(stdout,NULL,_IONBF,0);
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
     HMODULE native=GetModuleHandleA("ntdll.dll");
@@ -77,9 +94,15 @@ int main(int argc,char **argv)
     context.EFlags=(context.EFlags&~0x10100u)|0x200u|(single_step?0x100u:0);
     ULONG_PTR shadow_stack;
     __asm__ volatile("xorq %0,%0\n\trdsspq %0":"=r"(shadow_stack)::"cc");
-    printf("CONTINUATION_ENTER cet=%lx step=%d flags=%08lx restore=%d ip=%llx sp=%llx ssp=%llx\n",
-           policy,single_step,context.ContextFlags,restore,(unsigned long long)context.Rip,
+    printf("CONTINUATION_ENTER cet=%lx step=%d flags=%08lx restore=%d jump=%d movss=%d ip=%llx sp=%llx ssp=%llx\n",
+           policy,single_step,context.ContextFlags,restore,jump,movss,(unsigned long long)context.Rip,
            (unsigned long long)context.Rsp,(unsigned long long)shadow_stack);
+    if(jump)
+    {
+        jump_far.address=context.Rip;jump_far.selector=0x23;
+        if(movss)enter_jump_movss(&context);
+        enter_jump(&context);
+    }
     if(restore)
     {
         if(!restore_context)return 8;

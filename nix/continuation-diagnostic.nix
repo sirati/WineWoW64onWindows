@@ -8,12 +8,19 @@ in runCommand "wine-continuation-diagnostic" {
 } ''
   mkdir -p $out
   compiler=${cc64}/bin/x86_64-w64-mingw32-gcc
-  for helper in diagnose-continuation policy_launch64; do
+  for helper in diagnose-continuation diagnose-continuation-lowbase diagnose-continuation-lowva policy_launch64; do
+    flags=()
     case "$helper" in
       diagnose-continuation) source=${../prototype/diagnose-continuation.c} ;;
+      diagnose-continuation-lowbase)
+        source=${../prototype/diagnose-continuation.c}
+        flags+=( -Wl,--image-base,0x18000000,--high-entropy-va ) ;;
+      diagnose-continuation-lowva)
+        source=${../prototype/diagnose-continuation.c}
+        flags+=( -Wl,--image-base,0x18000000,--disable-high-entropy-va ) ;;
       policy_launch64) source=${../prototype/policy_launch64.c} ;;
     esac
-    "$compiler" -O2 -nostdlib "$source" \
+    "$compiler" -O2 -nostdlib "$source" "''${flags[@]}" \
       "$($compiler -print-file-name=crt2.o)" "$($compiler -print-file-name=crtbegin.o)" \
       -lmingw32 -lgcc -lgcc_eh -lmingwex -lmsvcrt -lkernel32 \
       "$($compiler -print-file-name=crtend.o)" -o "$out/$helper.exe"
