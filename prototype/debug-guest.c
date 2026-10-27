@@ -148,6 +148,10 @@ int main(void)
             const char *application=getenv("WINE_TEST_OCCUPY_APPLICATION_IMAGE");
             if(application&&strstr(path,"wine-host.exe")&&!reserve_application_image(event.u.CreateProcessInfo.hProcess,event.dwProcessId,application))
                 TerminateProcess(event.u.CreateProcessInfo.hProcess,82);
+            const char *application_canonical=getenv("WINE_TEST_OCCUPY_APPLICATION_CANONICAL_IMAGE");
+            if(application_canonical&&strstr(path,"wine-host.exe")&&
+               !reserve_bootstrap_image(event.u.CreateProcessInfo.hProcess,event.dwProcessId,application_canonical))
+                TerminateProcess(event.u.CreateProcessInfo.hProcess,82);
             if(getenv("WINE_TEST_OCCUPY_GATE_BASE"))
             {
                 void *reservation=VirtualAllocEx(event.u.CreateProcessInfo.hProcess,(void *)0x20000000,
