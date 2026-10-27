@@ -66,7 +66,7 @@ bootstrap-smoke includes queried policy flags and mapped DLL addresses.
 continuation-revised contains the independent NtContinue traces.
 
 Later documentation and test-helper commits do not change the implementation.
-Nix rebuilds can embed their changed output-store path in .debug_info and
+Nix rebuilds can embed an output-derived compiler seed in .debug_info and
 therefore produce a different PE checksum and whole-file hash. The 342d360
 rebuild was compared with this frozen candidate: changed PE sections were
 limited to .debug_info. Executable and runtime data sections were unchanged.
