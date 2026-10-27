@@ -14,6 +14,7 @@
       corpus = pkgs.callPackage ./nix/corpus.nix { };
       image-mapping-diagnostic = pkgs.callPackage ./nix/image-diagnostic.nix { };
       continuation-diagnostic = pkgs.callPackage ./nix/continuation-diagnostic.nix { };
+      shadow-stack-diagnostic = pkgs.callPackage ./nix/shadow-stack-diagnostic.nix { };
     };
     apps.${system}.default = {
       type = "app";

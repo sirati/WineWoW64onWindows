@@ -20,11 +20,12 @@ static LONG CALLBACK __attribute__((used,noreturn)) trap(EXCEPTION_POINTERS *exc
      * immediately after NOP. Both instructions occupy offset one here. */
     ULONG_PTR expected=guest_entry+1;
     DWORD expected_code=single_step?EXCEPTION_SINGLE_STEP:EXCEPTION_BREAKPOINT;
+    DWORD expected_wx86=single_step?0x4000001e:0x4000001f;
     printf("CONTINUATION_TRAP code=%08lx cs=%04x ip=%llx sp=%llx flags=%08lx expected_ip=%llx\n",
            code,context->SegCs,(unsigned long long)context->Rip,(unsigned long long)context->Rsp,
            context->EFlags,(unsigned long long)expected);
     fflush(stdout);
-    ExitProcess(code==expected_code&&context->SegCs==0x23&&context->Rip==expected?0:20);
+    ExitProcess((code==expected_code||code==expected_wx86)&&context->SegCs==0x23&&context->Rip==expected?0:20);
 }
 /* Windows invokes the native VEH on the interrupted guest stack. The native
  * CRT must run on the stack described by the native TEB, as in the port. */
