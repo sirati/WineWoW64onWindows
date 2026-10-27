@@ -10,9 +10,19 @@
  * selects the mapped image as the PEB main image, use Wine's original main
  * image relocation algorithm, before import binding or loader callbacks. */
 static void *get_rva(void *module,DWORD offset) { return (BYTE *)module+offset; }
+static NTSTATUS WINAPI main_image_protect(HANDLE process,void **address,SIZE_T *size,
+                                          ULONG protection,ULONG *previous)
+{
+    /* As in the native bootstrap adapter, empty BSS ranges need no native
+     * protection call. Initialize old protection for Wine's restore pass. */
+    if(!*size){*previous=0;return STATUS_SUCCESS;}
+    return NtProtectVirtualMemory(process,address,size,protection,previous);
+}
 #define page_size 4096
 #define WARN(...) do {} while(0)
+#define NtProtectVirtualMemory main_image_protect
 #include "out/wine-main-relocations.inc"
+#undef NtProtectVirtualMemory
 #undef WARN
 #undef page_size
 /* Return through the existing WoW64 gate, without rewriting Wine code. */
