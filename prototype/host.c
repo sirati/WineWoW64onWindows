@@ -70,6 +70,16 @@ extern void (WINAPI *pBTCpuNotifyMemoryProtect)(void *,SIZE_T,ULONG,BOOL,NTSTATU
 static void *guest_export(struct guest_module *m,const char *name,WORD ordinal);
 static void fail(const char *s);
 static void fail(const char *s) { fprintf(stderr,"FAIL %s, Windows error %lu\n",s,GetLastError()); exit(80); }
+static void require_image_relocation_policy(void)
+{
+    typedef BOOL (WINAPI *query_policy_t)(HANDLE,PROCESS_MITIGATION_POLICY,void *,SIZE_T);
+    query_policy_t query=(query_policy_t)GetProcAddress(GetModuleHandleA("kernel32.dll"),"GetProcessMitigationPolicy");
+    DWORD policy=0;
+    if(!query||!query(GetCurrentProcess(),ProcessDynamicCodePolicy,&policy,sizeof(policy)))
+        fail("query image relocation policy");
+    if(policy&1)
+    { SetLastError(ERROR_DYNAMIC_CODE_BLOCKED);fail("image address conflict requires executable relocation"); }
+}
 /* The loader's bootstrap runs before guest ntdll is callable. Compile Wine's
  * existing relocator for PE32 headers against native memory/heap services.
  * Protection failure is terminal during startup, rather than proceeding with
@@ -309,13 +319,7 @@ static struct guest_module *load_image(const char *path,const char *name)
     if(nmods>=128||nt->OptionalHeader.SizeOfImage>64*1024*1024)fail("image limit");
     if((uintptr_t)base!=nt->OptionalHeader.ImageBase)
     {
-        typedef BOOL (WINAPI *query_policy_t)(HANDLE,PROCESS_MITIGATION_POLICY,void *,SIZE_T);
-        query_policy_t query=(query_policy_t)GetProcAddress(GetModuleHandleA("kernel32.dll"),"GetProcessMitigationPolicy");
-        DWORD policy=0;
-        if(!query||!query(GetCurrentProcess(),ProcessDynamicCodePolicy,&policy,sizeof(policy)))
-            fail("query bootstrap relocation policy");
-        if(policy&1)
-        { SetLastError(ERROR_DYNAMIC_CODE_BLOCKED);fail("bootstrap address conflict requires executable relocation"); }
+        require_image_relocation_policy();
         if(!(nt->FileHeader.Characteristics&IMAGE_FILE_DLL))fail("bootstrap EXE address conflict");
         printf("BOOTSTRAP_RELOCATE %s canonical=%08lx mapped=%p\n",name,nt->OptionalHeader.ImageBase,base);
         NTSTATUS relocation=perform_relocations(base,nt,size);
@@ -1042,6 +1046,14 @@ int main(int argc,char **argv)
         app->base=(BYTE *)(uintptr_t)*application_base;
         app->nt=(void *)(app->base+((IMAGE_DOS_HEADER *)app->base)->e_lfanew);
         VirtualFree(module_path,0,MEM_RELEASE);
+        if((ULONG_PTR)app->base!=app->nt->OptionalHeader.ImageBase)
+        {
+            require_image_relocation_policy();
+            DWORD relocation=call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeRelocateApplication",0),&gate[2],NULL,0);
+            printf("WINE_RELOCATE_APPLICATION status=%08lx canonical=%08lx base=%p\n",relocation,app->nt->OptionalHeader.ImageBase,app->base);
+            if(relocation){SetLastError(RtlNtStatusToDosError(relocation));fail("Wine application relocation");}
+            FlushInstructionCache(GetCurrentProcess(),app->base,app->nt->OptionalHeader.SizeOfImage);
+        }
         DWORD import_status=call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeFixupImports",0),&gate[2],NULL,0);
         printf("WINE_IMPORTS status=%08lx\n",import_status);if(import_status)fail("Wine application imports");
         if(crt)

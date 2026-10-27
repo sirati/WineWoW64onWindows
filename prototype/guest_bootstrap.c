@@ -6,6 +6,15 @@
 #include "out/wine-ntdll-symbols.h"
 #define TRACE(...) do {} while(0)
 #define TRACE_(channel) TRACE
+/* LdrLoadDll deliberately leaves non-main EXEs unrelocated. Once the host
+ * selects the mapped image as the PEB main image, use Wine's original main
+ * image relocation algorithm, before import binding or loader callbacks. */
+static void *get_rva(void *module,DWORD offset) { return (BYTE *)module+offset; }
+#define page_size 4096
+#define WARN(...) do {} while(0)
+#include "out/wine-main-relocations.inc"
+#undef WARN
+#undef page_size
 /* Return through the existing WoW64 gate, without rewriting Wine code. */
 __declspec(dllexport) DWORD ProbeHostExitGate;
 __declspec(dllexport) __attribute__((naked)) void WINAPI ProbeExitProcess(DWORD status)
@@ -82,6 +91,13 @@ __declspec(dllexport) NTSTATUS WINAPI ProbeSetDllDirectory(const WCHAR *path)
 {
     UNICODE_STRING name;RtlInitUnicodeString(&name,path);
     return LdrSetDllDirectory(&name);
+}
+__declspec(dllexport) NTSTATUS WINAPI ProbeRelocateApplication(void)
+{
+    void *module=NtCurrentTeb()->Peb->ImageBaseAddress;
+    IMAGE_NT_HEADERS *nt=RtlImageNtHeader(module);
+    if(!nt)return STATUS_INVALID_IMAGE_FORMAT;
+    return perform_relocations(module,nt,(nt->OptionalHeader.SizeOfImage+4095)&~(SIZE_T)4095);
 }
 __declspec(dllexport) NTSTATUS WINAPI ProbeAttachImports(void)
 {
