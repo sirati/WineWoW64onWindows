@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
 #include <windows.h>
@@ -9,6 +10,20 @@
 #include "shared.h"
 #include "native_io.h"
 #include "../wine-11.0-source/dlls/ntdll/unixlib.h"
+/* A guest thread can be terminated while entering a native wait. Diagnostic
+ * output must not leave the native CRT's shared FILE lock owned by that
+ * thread, blocking every surviving service that tries to log a result. */
+static void diagnostic(const char *format,...)
+{
+    DWORD error=GetLastError(),written;char buffer[1024]={0};va_list arguments;
+    va_start(arguments,format);
+    int length=_vsnprintf(buffer,sizeof(buffer),format,arguments);
+    va_end(arguments);
+    if(length<0||length>=(int)sizeof(buffer))
+    { length=0;while(length<(int)sizeof(buffer)&&buffer[length])++length; }
+    WriteFile(GetStdHandle(STD_ERROR_HANDLE),buffer,length,&written,NULL);
+    SetLastError(error);
+}
 USHORT native_machine=IMAGE_FILE_MACHINE_AMD64,current_machine=IMAGE_FILE_MACHINE_I386;
 ULONG_PTR args_alignment=4,highest_user_address=0xfffeffff,default_zero_bits=0xffffffff;
 void (WINAPI *pBTCpuUpdateProcessorInformation)(SYSTEM_CPU_INFORMATION *);
@@ -222,13 +237,13 @@ NTSTATUS WINAPI Wow64SystemServiceEx(UINT n,UINT *a)
     struct temp_frame frame={0},*previous=TlsGetValue(temp_slot);
     TlsSetValue(temp_slot,&frame);
     InterlockedIncrement((LONG *)&probe_nt_calls);
-    if(probe_trace) fprintf(stderr,"NT_CALL %x\n",n);
+    if(probe_trace) diagnostic("NT_CALL %x\n",n);
     if(probe_trace&&n==0x33)
     {
         OBJECT_ATTRIBUTES32 *oa=(void *)(uintptr_t)a[2];UNICODE_STRING32 *name=(void *)(uintptr_t)oa->ObjectName;
-        fprintf(stderr,"OPEN_FILE access=%08x root=%08lx path=%.*ls\n",a[1],oa->RootDirectory,name->Length/2,(WCHAR *)(uintptr_t)name->Buffer);
+        diagnostic("OPEN_FILE access=%08x root=%08lx path=%.*ls\n",a[1],oa->RootDirectory,name->Length/2,(WCHAR *)(uintptr_t)name->Buffer);
     }
-    if(probe_trace&&n==0x27)fprintf(stderr,"SET_FILE handle=%x class=%u len=%u data=%08lx\n",a[0],a[4],a[3],*(DWORD *)(uintptr_t)a[2]);
+    if(probe_trace&&n==0x27)diagnostic("SET_FILE handle=%x class=%u len=%u data=%08lx\n",a[0],a[4],a[3],*(DWORD *)(uintptr_t)a[2]);
     switch(n)
     {
     case 0x00f8: status=wow64_NtTestAlert(a);break;
@@ -309,12 +324,12 @@ NTSTATUS WINAPI Wow64SystemServiceEx(UINT n,UINT *a)
     case NR_DELAY: status=wow64_NtDelayExecution(a); break;
     case NR_CREATE_FILE: status=wow64_NtCreateFile(a); break;
     case NR_DELETE_FILE: status=wow64_NtDeleteFile(a); break;
-    default: fprintf(stderr,"UNIMPLEMENTED NT service %x\n",n);status=STATUS_NOT_IMPLEMENTED;break;
+    default: diagnostic("UNIMPLEMENTED NT service %x\n",n);status=STATUS_NOT_IMPLEMENTED;break;
     }
     while(frame.count) free(frame.blocks[--frame.count]);
     TlsSetValue(temp_slot,previous);
-    if(probe_trace) fprintf(stderr,"NT_RETURN %x status=%08lx\n",n,(unsigned long)status);
-    if(status<0) fprintf(stderr,"NT service %x returned %08lx\n",n,(unsigned long)status);
+    if(probe_trace) diagnostic("NT_RETURN %x status=%08lx\n",n,(unsigned long)status);
+    if(status<0) diagnostic("NT service %x returned %08lx\n",n,(unsigned long)status);
     /* Reload SS before Wine jumps back to compatibility mode. This fixed
      * repeatable guest RET faults after native calls on the tested Windows VM. */
     __asm__ __volatile__("movw %%ss,%%ax; movw %%ax,%%ss":::"ax","memory");

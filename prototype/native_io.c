@@ -7,6 +7,7 @@
 #include <winternl.h>
 #include <winioctl.h>
 #include <stdio.h>
+#include <string.h>
 #include "../wine-11.0-source/dlls/wow64/wow64_private.h"
 #include "native_io.h"
 typedef ULONGLONG client_ptr_t;
@@ -133,6 +134,17 @@ BOOL probe_io_set_information(HANDLE handle,IO_STATUS_BLOCK *io,void *info,ULONG
  * Wait on our notification event instead, retaining it across handle close. */
 static NTSTATUS duplicate_wait_handle(HANDLE handle,HANDLE *wait)
 {
+    /* Native event/thread/mutex/semaphore waits do not use our file proxy.
+     * In particular, do not expose those waiters to files_lock: terminating
+     * an event waiter while it enters this adapter could abandon that lock
+     * and prevent surviving threads from publishing their I/O completions.
+     * Keep the old lookup on query failure so native wait error semantics
+     * and file-handle notification ordering remain unchanged. */
+    union { OBJECT_TYPE_INFORMATION type;BYTE bytes[512]; } object;
+    if(NtQueryObject(handle,ObjectTypeInformation,&object,sizeof(object),NULL)==STATUS_SUCCESS&&
+       (object.type.TypeName.Length!=4*sizeof(WCHAR)||
+        memcmp(object.type.TypeName.Buffer,L"File",4*sizeof(WCHAR))))
+    { *wait=handle;return STATUS_SUCCESS; }
     struct file_state *file=get_file(handle,FALSE);
     if(!file){*wait=handle;return STATUS_SUCCESS;}
     NTSTATUS status=NtDuplicateObject(GetCurrentProcess(),file->event,GetCurrentProcess(),wait,0,0,DUPLICATE_SAME_ACCESS);
