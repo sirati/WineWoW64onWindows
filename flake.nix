@@ -9,6 +9,7 @@
     packages.${system} = {
       default = runtime;
       corpus = pkgs.callPackage ./nix/corpus.nix { };
+      image-mapping-diagnostic = pkgs.callPackage ./nix/image-diagnostic.nix { };
     };
     apps.${system}.default = {
       type = "app";
