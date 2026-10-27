@@ -69,11 +69,6 @@ extern NTSTATUS (WINAPI *pBTCpuNotifyMapViewOfSection)(void *,void *,void *,SIZE
 extern void (WINAPI *pBTCpuNotifyMemoryProtect)(void *,SIZE_T,ULONG,BOOL,NTSTATUS);
 static void *guest_export(struct guest_module *m,const char *name,WORD ordinal);
 static void fail(const char *s);
-static void disable_guest_debug(struct guest_module *m)
-{
-    static const char *names[]={"__wine_dbg_get_channel_flags","__wine_dbg_header","__wine_dbg_output","__wine_dbg_strdup"};
-    for(unsigned i=0;i<sizeof(names)/sizeof(names[0]);i++) { BYTE *p=guest_export(m,names[i],0); if(p) { p[0]=0x31;p[1]=0xc0;p[2]=0xc3; } }
-}
 static void patch_guest_jump(struct guest_module *from,const char *name,struct guest_module *to)
 {
     BYTE *dst=guest_export(from,name,0),*src=guest_export(to,name,0); intptr_t rel;
@@ -476,9 +471,11 @@ static void init_guest_teb(BYTE *image)
 {
     DWORD pid=GetCurrentProcessId(),tid=GetCurrentThreadId();
     guest_teb=low_alloc(0x34000000,0x3000,PAGE_READWRITE);
-    guest_peb=low_alloc(0x35000000,0x1000,PAGE_READWRITE);
+    /* Wine debug options follow the x86 PEB at the next page. The zero
+     * sentinel keeps channels disabled without patching debug routines. */
+    guest_peb=low_alloc(0x35000000,0x2000,PAGE_READWRITE);
     if(!guest_teb||!guest_peb) fail("guest TEB/PEB allocation");
-    memset(guest_teb,0,0x3000);memset(guest_peb,0,0x1000);
+    memset(guest_teb,0,0x3000);memset(guest_peb,0,0x2000);
     TEB32 *teb32=(void *)guest_teb;
     teb32->Tib.ExceptionList=~0u;
     teb32->StaticUnicodeString.MaximumLength=sizeof(teb32->StaticUnicodeBuffer);
@@ -686,7 +683,8 @@ static struct guest_thread_job *allocate_guest_thread(DWORD entry,DWORD param,SI
     size=(size+65535)&~(SIZE_T)65535;
     if(size>64*1024*1024){free_guest_thread(job);return NULL;}
     job->stack_size=size;job->stack=stack_alloc(0x38000000,size,commit?commit:0x10000,NULL);
-    job->teb=low_alloc(0x39000000,0x1000,PAGE_READWRITE);
+    /* Wine stores per-thread debug buffers after its x86 TEB. */
+    job->teb=low_alloc(0x39000000,0x3000,PAGE_READWRITE);
     if(!job->stack||!job->teb){free_guest_thread(job);return NULL;}
     BYTE *teb=job->teb,*stack=job->stack;
     stack_bind(stack,(TEB32 *)teb);
@@ -984,12 +982,11 @@ int main(int argc,char **argv)
     pBTCpuNotifyMapViewOfSection=bind_native_bridge;
     pBTCpuNotifyMemoryProtect=notify_stack_protection;
     ((TEB32 *)guest_teb)->WOW32Reserved=(DWORD)(uintptr_t)&gate[0];
-    if(wine_components) disable_guest_debug(nt);
     if(wine_components)probe_exception_init(guest_export(nt,"KiUserExceptionDispatcher",0),ss);
     if(wine_components)probe_apc_init(guest_export(nt,"KiUserApcDispatcher",0));
     *(DWORD *)guest_export(nt,"__wine_syscall_dispatcher",0)=(DWORD)(uintptr_t)&gate[0];
     { void *u=guest_export(nt,"__wine_unix_call_dispatcher",0); if(u) *(DWORD *)(uintptr_t)u=(DWORD)(uintptr_t)&gate[1];
-      void *h=guest_export(nt,"__wine_unixlib_handle",0); if(h) *(uint64_t *)(uintptr_t)h=(uint64_t)(uintptr_t)table; }
+      void *h=guest_export(nt,"__wine_unixlib_handle",0); if(h) *(uint64_t *)(uintptr_t)h=wine_components?BRIDGE_NTDLL_UNIX_HANDLE:(uint64_t)(uintptr_t)table; }
     { struct guest_module *bk=wine_components?bridge:k32;
       *(uint64_t *)guest_export(bk,"bridge_handle",0)=(uint64_t)(uintptr_t)table;
       *(DWORD *)guest_export(bk,"bridge_gate",0)=(DWORD)(uintptr_t)&gate[1];

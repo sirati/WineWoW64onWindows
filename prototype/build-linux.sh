@@ -76,7 +76,7 @@ python3 prototype/check-transition-image.py prototype/out/guest/transition32.dll
 guest_flags=(-O2 -D_WIN32_WINNT=0x0601 -ffreestanding -fno-stack-protector -nostdlib)
 "$cc32" "${guest_flags[@]}" prototype/hello32.c -lkernel32 prototype/out/libguest_kernel32.a \
   -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/hello32.exe
-for test in stress32 teb32 tls32 threads32 files32 dynamic32 file_semantics32 heap32 return32 concurrent32 fs_recovery32 async_event32 pipe_control32 apc32 io_notify32 thread_context32 thread_create32 xstate32 xstate_components32 fiber32 stack_growth32 mitigation32; do
+for test in stress32 teb32 tls32 threads32 files32 dynamic32 file_semantics32 heap32 return32 concurrent32 fs_recovery32 async_event32 pipe_control32 apc32 io_notify32 thread_context32 thread_create32 xstate32 xstate_components32 fiber32 wine_debug32 stack_growth32 mitigation32; do
   test_flags=();if [[ "$test" == xstate32 ]];then test_flags+=( -msse2 );fi
   "$cc32" "${guest_flags[@]}" "${test_flags[@]}" prototype/$test.c -lkernel32 prototype/out/libguest_kernel32.a \
     -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/$test.exe

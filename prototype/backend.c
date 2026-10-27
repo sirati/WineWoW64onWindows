@@ -8,6 +8,7 @@
 #include "wine/debug.h"
 #include "shared.h"
 #include "native_io.h"
+#include "../wine-11.0-source/dlls/ntdll/unixlib.h"
 USHORT native_machine=IMAGE_FILE_MACHINE_AMD64,current_machine=IMAGE_FILE_MACHINE_I386;
 ULONG_PTR args_alignment=4,highest_user_address=0xfffeffff,default_zero_bits=0xffffffff;
 void (WINAPI *pBTCpuUpdateProcessorInformation)(SYSTEM_CPU_INFORMATION *);
@@ -325,9 +326,24 @@ NTSTATUS WINAPI probe_library_dispatch(uint64_t handle,unsigned int n,void *a)
 {
     NTSTATUS status;
     InterlockedIncrement((LONG *)&probe_library_calls);
+    if(handle==BRIDGE_NTDLL_UNIX_HANDLE)
+    {
+        status=STATUS_NOT_SUPPORTED;
+        if(n==unix_wine_dbg_write)
+        {
+            /* Wine's x86 unix-call record contains a 32-bit string pointer. */
+            const UINT *args=a;
+            struct wine_dbg_write_params params={ULongToPtr(args[0]),args[1]};
+            DWORD written=0;
+            if(WriteFile(GetStdHandle(STD_ERROR_HANDLE),params.str,params.len,&written,NULL))status=written;
+            else status=STATUS_UNSUCCESSFUL;
+        }
+        goto done;
+    }
     if(probe_socket_unix_dispatch(handle,n,a,&status))return status;
     if(n>=BRIDGE_COUNT) return STATUS_INVALID_PARAMETER;
     status=((entry_t *)(uintptr_t)handle)[n](a);
+done:
     __asm__ __volatile__("movw %%ss,%%ax; movw %%ax,%%ss":::"ax","memory");
     return status;
 }
