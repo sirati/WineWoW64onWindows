@@ -69,13 +69,6 @@ extern NTSTATUS (WINAPI *pBTCpuNotifyMapViewOfSection)(void *,void *,void *,SIZE
 extern void (WINAPI *pBTCpuNotifyMemoryProtect)(void *,SIZE_T,ULONG,BOOL,NTSTATUS);
 static void *guest_export(struct guest_module *m,const char *name,WORD ordinal);
 static void fail(const char *s);
-static void patch_guest_jump(struct guest_module *from,const char *name,struct guest_module *to)
-{
-    BYTE *dst=guest_export(from,name,0),*src=guest_export(to,name,0); intptr_t rel;
-    if(!dst||!src) return;
-    rel=(BYTE *)src-(dst+5); if(rel<(intptr_t)INT32_MIN||rel>(intptr_t)INT32_MAX) fail("guest jump range");
-    dst[0]=0xe9;*(int32_t *)(dst+1)=(int32_t)rel;
-}
 static void fail(const char *s) { fprintf(stderr,"FAIL %s, Windows error %lu\n",s,GetLastError()); exit(80); }
 struct guest_stack { LIST_ENTRY entry; BYTE *base,*guest_base; SIZE_T reserve,commit; BYTE *limit,*guard; TEB32 *teb; BOOL guest_allocated; };
 static SRWLOCK stack_lock=SRWLOCK_INIT;
@@ -970,11 +963,6 @@ int main(int argc,char **argv)
     int arg_start=wine_components?3:2;
     if(wine_components) init_guest_process_params(app,argc>arg_start?argc-arg_start:0,argv+(argc>arg_start?arg_start:argc));
     for(unsigned i=0;i<nmods;i++) if(!wine_components||&mods[i]!=app)resolve_imports(&mods[i]);
-    if(wine_components)
-    {
-        static const char *apis[]={"ExitProcess"};
-        for(unsigned i=0;i<sizeof(apis)/sizeof(apis[0]);i++) { patch_guest_jump(kb,apis[i],bridge); patch_guest_jump(k32,apis[i],bridge); }
-    }
     struct far_thunk *gate=map_transition_gates(cs);
     guest_return_gate=&gate[2];
     probe_set_bop_code(&gate[0]);
@@ -982,6 +970,14 @@ int main(int argc,char **argv)
     pBTCpuNotifyMapViewOfSection=bind_native_bridge;
     pBTCpuNotifyMemoryProtect=notify_stack_protection;
     ((TEB32 *)guest_teb)->WOW32Reserved=(DWORD)(uintptr_t)&gate[0];
+    if(wine_components)
+    {
+        DWORD *hook=guest_export(nt,"__wine_windows_exit_process",0);
+        DWORD *exit_gate=guest_export(bootstrap,"ProbeHostExitGate",0);
+        void *exit=guest_export(bootstrap,"ProbeExitProcess",0);
+        if(!hook||!exit_gate||!exit)fail("Wine process return hook");
+        *exit_gate=(DWORD)(ULONG_PTR)&gate[2];*hook=(DWORD)(ULONG_PTR)exit;
+    }
     if(wine_components)probe_exception_init(guest_export(nt,"KiUserExceptionDispatcher",0),ss);
     if(wine_components)probe_apc_init(guest_export(nt,"KiUserApcDispatcher",0));
     *(DWORD *)guest_export(nt,"__wine_syscall_dispatcher",0)=(DWORD)(uintptr_t)&gate[0];

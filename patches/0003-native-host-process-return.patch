@@ -1,0 +1,28 @@
+--- a/dlls/ntdll/loader.c
++++ b/dlls/ntdll/loader.c
+@@ -70,6 +70,8 @@
+ typedef void  (CALLBACK *LDRENUMPROC)(LDR_DATA_TABLE_ENTRY *, void *, BOOLEAN *);
+ 
+ static void __fastcall default_thread_init_func( DWORD unknown, LPTHREAD_START_ROUTINE entry, void *arg );
++/* Optional return to the native host; shutdown runs after the guest returns. */
++void (WINAPI *__wine_windows_exit_process)(DWORD);
+ void (FASTCALL *pBaseThreadInitThunk)(DWORD,LPTHREAD_START_ROUTINE,void *) = default_thread_init_func;
+ NTSTATUS (WINAPI *__wine_unix_call_dispatcher)( unixlib_handle_t, unsigned int, void * ) = NULL;
+ 
+@@ -3906,6 +3908,7 @@
+  */
+ void WINAPI RtlExitUserProcess( DWORD status )
+ {
++    if (__wine_windows_exit_process) __wine_windows_exit_process( status );
+     RtlEnterCriticalSection( &loader_section );
+     RtlAcquirePebLock();
+     NtTerminateProcess( 0, status );
+--- a/dlls/ntdll/ntdll.spec
++++ b/dlls/ntdll/ntdll.spec
+@@ -1765,3 +1765,6 @@
+ @ cdecl wine_get_version()
+ @ cdecl wine_get_build_id()
+ @ cdecl wine_get_host_version(ptr ptr)
++
++# Native Windows embedding hook, initialized by the host.
++@ extern __wine_windows_exit_process

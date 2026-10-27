@@ -6,6 +6,12 @@
 #include "out/wine-ntdll-symbols.h"
 #define TRACE(...) do {} while(0)
 #define TRACE_(channel) TRACE
+/* Return through the existing WoW64 gate, without rewriting Wine code. */
+__declspec(dllexport) DWORD ProbeHostExitGate;
+__declspec(dllexport) __attribute__((naked)) void WINAPI ProbeExitProcess(DWORD status)
+{
+    __asm__ volatile("movl 4(%esp),%eax\n\tjmp *_ProbeHostExitGate");
+}
 BOOL WINAPI DllMain(HINSTANCE module,DWORD reason,void *reserved)
 { (void)module;(void)reason;(void)reserved;return TRUE; }
 __declspec(dllexport) void WINAPI ProbeInitRuntime(void)

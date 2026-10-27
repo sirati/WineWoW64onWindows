@@ -12,7 +12,10 @@ let
   }).overrideAttrs (old: {
     version = "11.0";
     src = wineSource;
-    patches = [ ../patches/0001-loader-request-execute-access.patch ];
+    patches = [
+      ../patches/0001-loader-request-execute-access.patch
+      ../patches/0003-native-host-process-return.patch
+    ];
     dontStrip = true; # Wine loader private symbols are resolved during the cross build.
   });
   cc32 = pkgsCross.mingw32.buildPackages.gcc;
