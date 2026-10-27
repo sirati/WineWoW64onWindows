@@ -32,10 +32,20 @@ launches still fail with FAST_FAIL_CONTROL_INVALID_RETURN_ADDRESS 0x39.
 A solution must restore compatibility mode and valid shadow-stack state
 while preserving exception and debugger single-step behavior.
 
+The 6d8fe47 native WoW64 policy helper also tests a possible 32-bit launcher
+alternative. Direct, CET, CET-strict, ASLR and dynamic-code launches all
+reported wow64=1, CET flags 0x100 and SSP=0 on the same Windows build.
+Bit 0, EnableUserShadowStack, is clear. Thus this native WoW64 route did
+not enable requested CET and does not solve the runtime's CET requirement.
+POLICY_EXIT code=0 is the child's exit, not the launcher's final status;
+the launcher returns 83 when requested CET is absent. The original agent
+summary confused those values. The raw policy report is authoritative.
+
 Raw evidence directories in the local workspace:
 2026-10-27-wine-cet-context-luna/evidence/continuation-matrix/
 2026-10-27-wine-cet-shadow-luna/evidence/shadow-stack-lowssp/
 2026-10-27-wine-cet-jump-luna/evidence/jump-matrix/
+2026-10-27-wine-wow64-policy-luna/evidence/policy-report.txt
 
 Each contains exact commands, policy flags, CS/IP/SSP values, file hashes
 and complete output. The helpers build through the pinned flake packages
