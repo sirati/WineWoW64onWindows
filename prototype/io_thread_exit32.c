@@ -27,6 +27,7 @@ static DWORD WINAPI issue(void *argument)
 }
 static void one_case(BOOL stack,BOOL apc)
 {
+    MESSAGE("io_thread_exit32 case stack/apc:\r\n");message_hex(stack);message_hex(apc);
     struct job job={0};job.stack=stack;job.apc=apc;
     job.file=CreateNamedPipeA("\\\\.\\pipe\\wine-io-thread-exit32",PIPE_ACCESS_DUPLEX|FILE_FLAG_OVERLAPPED,
                              PIPE_TYPE_BYTE|PIPE_WAIT,1,4096,4096,0,NULL);
@@ -41,7 +42,9 @@ static void one_case(BOOL stack,BOOL apc)
     if(!apc){port=CreateIoCompletionPort(job.file,NULL,0x13572468,1);REQUIRE(port,24);}
     callbacks=0;HANDLE thread=CreateThread(NULL,0,issue,&job,0,NULL);REQUIRE(thread,25);
     REQUIRE(WaitForSingleObject(job.ready,3000)==WAIT_OBJECT_0,26);
+    MESSAGE("io_thread_exit32 ready, terminating issuer\r\n");
     REQUIRE(TerminateThread(thread,77)&&WaitForSingleObject(thread,3000)==WAIT_OBJECT_0,27);
+    MESSAGE("io_thread_exit32 issuer terminated, awaiting completion\r\n");
     DWORD code;REQUIRE(GetExitCodeThread(thread,&code)&&code==77,28);
     REQUIRE(WaitForSingleObject(apc?job.file:job.event,3000)==WAIT_OBJECT_0,29);
     if(port)
@@ -54,6 +57,7 @@ static void one_case(BOOL stack,BOOL apc)
     /* A completion APC belonging to the terminated issuer must not be
      * redirected to this surviving alertable thread. */
     SleepEx(5,TRUE);REQUIRE(!callbacks,33);
+    MESSAGE("io_thread_exit32 completion received, closing handles\r\n");
     REQUIRE(CloseHandle(thread)&&CloseHandle(job.ready)&&CloseHandle(job.hold)&&CloseHandle(job.event),34);
     if(port)REQUIRE(CloseHandle(port),35);
     REQUIRE(CloseHandle(job.file)&&CloseHandle(client),36);

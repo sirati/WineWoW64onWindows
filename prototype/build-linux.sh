@@ -47,7 +47,7 @@ crt2=$($cc64 -print-file-name=crt2.o)
 crtbegin=$($cc64 -print-file-name=crtbegin.o)
 crtend=$($cc64 -print-file-name=crtend.o)
 
-"$cc64" -O2 -g -nostdlib prototype/debug-guest.c "$crt2" "$crtbegin" "${winlibs[@]}" "$crtend" -o prototype/out/debug-guest.exe
+"$cc64" -O2 -g -nostdlib prototype/debug-guest.c "$crt2" "$crtbegin" -ldbghelp "${winlibs[@]}" "$crtend" -o prototype/out/debug-guest.exe
 "$cc64" -O2 -g -nostdlib prototype/async_peer64.c "$crt2" "$crtbegin" "${winlibs[@]}" "$crtend" -o prototype/out/async-peer64.exe
 "$cc64" -O2 -g -nostdlib prototype/policy_launch64.c "$crt2" "$crtbegin" "${winlibs[@]}" "$crtend" -o prototype/out/policy-launch64.exe
 

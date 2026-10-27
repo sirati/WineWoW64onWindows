@@ -3,6 +3,42 @@
 #include <stdlib.h>
 #include <string.h>
 #include <windows.h>
+#include <tlhelp32.h>
+#include <dbghelp.h>
+static void dump_threads(HANDLE process,DWORD pid)
+{
+    HANDLE snapshot=CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD,0);
+    THREADENTRY32 entry={.dwSize=sizeof(entry)};
+    SymInitialize(process,NULL,TRUE);
+    if(snapshot!=INVALID_HANDLE_VALUE&&Thread32First(snapshot,&entry))do
+    {
+        if(entry.th32OwnerProcessID!=pid)continue;
+        HANDLE thread=OpenThread(THREAD_GET_CONTEXT|THREAD_SUSPEND_RESUME|THREAD_QUERY_INFORMATION,FALSE,entry.th32ThreadID);
+        if(!thread)continue;
+        DWORD suspended=SuspendThread(thread);CONTEXT context={.ContextFlags=CONTEXT_ALL};
+        if(suspended!=(DWORD)-1&&GetThreadContext(thread,&context))
+        {
+            fprintf(stderr,"DEBUG_TIMEOUT_THREAD tid=%lu rip=%llx rsp=%llx cs=%x\n",
+                    entry.th32ThreadID,context.Rip,context.Rsp,context.SegCs);
+            STACKFRAME64 frame={0};frame.AddrPC.Offset=context.Rip;frame.AddrPC.Mode=AddrModeFlat;
+            frame.AddrStack.Offset=context.Rsp;frame.AddrStack.Mode=AddrModeFlat;
+            frame.AddrFrame.Offset=context.Rbp;frame.AddrFrame.Mode=AddrModeFlat;
+            for(unsigned i=0;i<20&&context.SegCs==0x33;i++)
+            {
+                if(!StackWalk64(IMAGE_FILE_MACHINE_AMD64,process,thread,&frame,&context,NULL,
+                                SymFunctionTableAccess64,SymGetModuleBase64,NULL))break;
+                fprintf(stderr,"DEBUG_TIMEOUT_FRAME tid=%lu index=%u pc=%llx base=%llx sp=%llx\n",
+                        entry.th32ThreadID,i,(unsigned long long)frame.AddrPC.Offset,
+                        (unsigned long long)SymGetModuleBase64(process,frame.AddrPC.Offset),
+                        (unsigned long long)frame.AddrStack.Offset);
+            }
+        }
+        if(suspended!=(DWORD)-1)ResumeThread(thread);
+        CloseHandle(thread);
+    }while(Thread32Next(snapshot,&entry));
+    if(snapshot!=INVALID_HANDLE_VALUE)CloseHandle(snapshot);
+    SymCleanup(process);
+}
 typedef LONG (WINAPI *create_section_t)(HANDLE *,DWORD,void *,LARGE_INTEGER *,ULONG,ULONG,HANDLE);
 typedef LONG (WINAPI *map_section_t)(HANDLE,HANDLE,void **,ULONG_PTR,SIZE_T,LARGE_INTEGER *,SIZE_T *,int,ULONG,ULONG);
 static BOOL reserve_application_image(HANDLE process,DWORD pid,const char *path)
@@ -59,6 +95,7 @@ int main(void)
     {
         if(!WaitForDebugEvent(&event,15000))
         {
+            dump_threads(pi.hProcess,pi.dwProcessId);
             SuspendThread(pi.hThread);CONTEXT c={.ContextFlags=CONTEXT_ALL};GetThreadContext(pi.hThread,&c);
             fprintf(stderr,"DEBUG_TIMEOUT rip=%llx rsp=%llx cs=%x eax=%llx ebx=%llx ecx=%llx edx=%llx esi=%llx edi=%llx ebp=%llx\n",c.Rip,c.Rsp,c.SegCs,c.Rax,c.Rbx,c.Rcx,c.Rdx,c.Rsi,c.Rdi,c.Rbp);
             DWORD stack[16]={0};SIZE_T read;ReadProcessMemory(pi.hProcess,(void *)c.Rsp,stack,sizeof(stack),&read);
