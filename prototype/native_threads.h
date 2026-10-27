@@ -2,7 +2,7 @@
 #define PROBE_NATIVE_THREADS_H
 struct guest_thread;
 void probe_threads_init(void);
-struct guest_thread *probe_thread_register(HANDLE,TEB32 *,struct guest_cpu *);
+struct guest_thread *probe_thread_register(HANDLE,TEB32 *,struct guest_cpu *,void (*)(void *),void *);
 void probe_thread_bind(struct guest_thread *);
 void probe_thread_remove(struct guest_thread *);
 void probe_thread_exception_state(void *);

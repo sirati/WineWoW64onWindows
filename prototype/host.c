@@ -666,18 +666,24 @@ struct guest_thread_job {
     DWORD id;
     BOOL wine_lifecycle;
 };
-static void free_guest_thread(struct guest_thread_job *job)
+static void free_guest_thread_storage(void *opaque)
 {
+    struct guest_thread_job *job=opaque;
     if(job->wait)CloseThreadpoolWait(job->wait);
     if(job->record)
-    {
         HeapFree(GetProcessHeap(),0,probe_thread_take_exception_state(job->record));
-        probe_thread_remove(job->record);probe_thread_release(job->record);
-    }
     if(job->native)CloseHandle(job->native);
     if(job->stack)stack_free(job->stack);
     if(job->teb)VirtualFree(job->teb,0,MEM_RELEASE);
     VirtualFree(job,0,MEM_RELEASE);
+}
+static void free_guest_thread(struct guest_thread_job *job)
+{
+    /* Context/APC callers pin the record. Its CPU, TEB and stack storage
+     * must survive until their final reference, including after native exit. */
+    struct guest_thread *record=job->record;
+    if(record){probe_thread_remove(record);probe_thread_release(record);}
+    else free_guest_thread_storage(job);
 }
 static void CALLBACK guest_thread_finished(PTP_CALLBACK_INSTANCE instance,void *opaque,PTP_WAIT wait,TP_WAIT_RESULT result)
 {
@@ -757,7 +763,7 @@ static DWORD callback_on_native_thread(DWORD function,const DWORD *args,UINT cou
         job=allocate_guest_thread(0,0,0,0,0);if(!job)return 0xffffffffu;
         job->id=GetCurrentThreadId();((TEB32 *)job->teb)->ClientId.UniqueThread=job->id;
         ((TEB32 *)job->teb)->RealClientId=((TEB32 *)job->teb)->ClientId;
-        job->record=probe_thread_register(GetCurrentThread(),(void *)job->teb,NULL);
+        job->record=probe_thread_register(GetCurrentThread(),(void *)job->teb,NULL,free_guest_thread_storage,job);
         if(!job->record){free_guest_thread(job);return 0xffffffffu;}
         probe_thread_bind(job->record);
         if(!FlsSetValue(native_callback_slot,job))
@@ -828,7 +834,7 @@ NTSTATUS WINAPI probe_NtCreateThreadEx(HANDLE *output,ACCESS_MASK access,OBJECT_
     if(status){free_guest_thread(job);return status;}
     job->id=GetThreadId(job->native);((TEB32 *)job->teb)->ClientId.UniqueThread=job->id;
     ((TEB32 *)job->teb)->RealClientId=((TEB32 *)job->teb)->ClientId;
-    job->record=probe_thread_register(job->native,(void *)job->teb,&job->cpu);
+    job->record=probe_thread_register(job->native,(void *)job->teb,&job->cpu,free_guest_thread_storage,job);
     if(!job->record)status=STATUS_NO_MEMORY;
     if(!status)status=NtDuplicateObject(GetCurrentProcess(),job->native,GetCurrentProcess(),output,access,
                                        attributes?attributes->Attributes&OBJ_INHERIT:0,0);

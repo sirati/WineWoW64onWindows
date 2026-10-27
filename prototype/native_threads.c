@@ -17,6 +17,8 @@ struct guest_thread {
     LONG ready;
     SRWLOCK apc_lock;
     LIST_ENTRY pending_apcs;
+    void (*cleanup)(void *);
+    void *cleanup_arg;
 };
 struct pending_apc { LIST_ENTRY entry;PNTAPCFUNC function;ULONG_PTR args[3]; };
 static SRWLOCK threads_lock=SRWLOCK_INIT;
@@ -36,6 +38,7 @@ void probe_thread_release(struct guest_thread *thread)
     {
         while(!IsListEmpty(&thread->pending_apcs))
             HeapFree(GetProcessHeap(),0,CONTAINING_RECORD(RemoveHeadList(&thread->pending_apcs),struct pending_apc,entry));
+        if(thread->cleanup)thread->cleanup(thread->cleanup_arg);
         CloseHandle(thread->thread);HeapFree(GetProcessHeap(),0,thread);
     }
 }
@@ -54,13 +57,15 @@ struct guest_thread *probe_thread_acquire(HANDLE handle)
 struct guest_cpu *probe_thread_cpu(struct guest_thread *thread)
 { return InterlockedCompareExchangePointer((void *volatile *)&thread->cpu,NULL,NULL); }
 TEB32 *probe_thread_teb(struct guest_thread *thread) { return thread->teb; }
-struct guest_thread *probe_thread_register(HANDLE handle,TEB32 *teb,struct guest_cpu *cpu)
+struct guest_thread *probe_thread_register(HANDLE handle,TEB32 *teb,struct guest_cpu *cpu,
+                                         void (*cleanup)(void *),void *cleanup_arg)
 {
     struct guest_thread *thread=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(*thread));
     if(!thread)return NULL;
     if(!DuplicateHandle(GetCurrentProcess(),handle,GetCurrentProcess(),&thread->thread,0,FALSE,DUPLICATE_SAME_ACCESS))
     { HeapFree(GetProcessHeap(),0,thread);return NULL; }
     thread->id=GetThreadId(handle);thread->teb=teb;thread->cpu=cpu;thread->refs=2;
+    thread->cleanup=cleanup;thread->cleanup_arg=cleanup_arg;
     thread->ready=cpu==NULL;InitializeSRWLock(&thread->apc_lock);InitializeListHead(&thread->pending_apcs);
     AcquireSRWLockExclusive(&threads_lock);InsertTailList(&threads,&thread->entry);ReleaseSRWLockExclusive(&threads_lock);
     return thread;
@@ -123,7 +128,7 @@ void probe_thread_enter(struct guest_cpu *cpu,struct guest_cpu **previous)
     struct guest_thread *thread=TlsGetValue(thread_slot);
     if(!thread)
     {
-        thread=probe_thread_register(GetCurrentThread(),(void *)cpu->guest_fs_base,NULL);
+        thread=probe_thread_register(GetCurrentThread(),(void *)cpu->guest_fs_base,NULL,NULL,NULL);
         if(!thread)ExitProcess(94);
         probe_thread_bind(thread);probe_thread_release(thread);
     }
