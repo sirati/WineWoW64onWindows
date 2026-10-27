@@ -768,6 +768,7 @@ static DWORD WINAPI guest_thread_entry(void *opaque)
     I386_CONTEXT entry_context=cpu->ctx;
     if(wine_thread_attach)
     {
+        sp[0]=(DWORD)(ULONG_PTR)guest_return_gate;
         cpu->ctx.Eip=(DWORD)(uintptr_t)wine_thread_attach;
         if(probe_run32(&cpu->ctx)) { result=ERROR_DLL_INIT_FAILED;goto cleanup; }
         cpu->ctx=entry_context;
@@ -775,9 +776,13 @@ static DWORD WINAPI guest_thread_entry(void *opaque)
     probe_thread_ready();
     if(wine_initial_apcs)
     {
+        sp[0]=(DWORD)(ULONG_PTR)guest_return_gate;
         cpu->ctx.Eip=(DWORD)(ULONG_PTR)wine_initial_apcs;
         probe_run32(&cpu->ctx);cpu->ctx=entry_context;
     }
+    /* Each call owns a new return frame. A completed call may overwrite
+     * the consumed return slot, as the image gate does when saving EAX. */
+    sp[0]=(DWORD)(ULONG_PTR)guest_return_gate;
     result=probe_run32(&cpu->ctx);
     if(wine_thread_detach&&!job->wine_lifecycle)
     {
