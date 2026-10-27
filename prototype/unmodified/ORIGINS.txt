@@ -1,0 +1,27 @@
+External binary inputs. These application binaries have not been patched.
+
+7-Zip 9.20 standalone x86:
+  https://www.7-zip.org/a/7za920.zip
+  Original license and documentation preserved in 7za920/.
+
+7zr 26.04 x86, vendor download reported 2026-10-05:
+  https://www.7-zip.org/a/7zr.exe
+
+BusyBox for Windows x86:
+  https://frippery.org/files/busybox/busybox.exe
+  https://frippery.org/busybox/
+
+SQLite 3.43.2 x86 tools:
+  https://www.sqlite.org/2023/sqlite-tools-win32-x86-3430200.zip
+  https://www.sqlite.org/copyright.html
+
+LuaBinaries 5.4.2 Windows x86 tools and lua54.dll:
+  https://downloads.sourceforge.net/project/luabinaries/5.4.2/Tools%20Executables/lua-5.4.2_Win32_bin.zip
+  https://luabinaries.sourceforge.net/
+  https://www.lua.org/license.html
+
+ordinary-main.c / ordinary-main.exe are our normal MinGW CRT-startup probe,
+not an independently distributed application. They do not use a custom
+entry point or Wine headers. The official binaries above establish the
+external-application results. SHA-256 values are recorded separately in
+../../evidence/unmodified-input-SHA256SUMS.

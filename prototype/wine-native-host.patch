@@ -1,0 +1,77 @@
+--- a/dlls/wow64/wow64_private.h
++++ b/dlls/wow64/wow64_private.h
+@@ -73,7 +73,12 @@
+ 
+ static inline TEB32 *NtCurrentTeb32(void)
+ {
++#ifdef PROBE_NATIVE_WINDOWS
++    extern TEB32 *probe_current_teb32(void);
++    return probe_current_teb32();
++#else
+     return (TEB32 *)((char *)NtCurrentTeb() + NtCurrentTeb()->WowTebOffset);
++#endif
+ }
+ 
+ static inline ULONG get_ulong( UINT **args ) { return *(*args)++; }
+--- a/dlls/wow64cpu/cpu.c
++++ b/dlls/wow64cpu/cpu.c
+@@ -30,6 +30,14 @@
+ #include "wine/debug.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(wow);
++
++/* Optional native-Windows host hooks. Empty in the upstream Unix backend.
++ * The host must restore the FS base after loading a selector and after any
++ * Windows API calls, immediately before compatibility-mode execution. */
++#ifndef PROBE_FS_HOST
++#define PROBE_FS_HOST ""
++#define PROBE_FS_GUEST ""
++#endif
+ 
+ #pragma pack(push,1)
+ struct thunk_32to64
+@@ -195,6 +203,7 @@
+                    "movl %edx,0xc4(%r13)\n\t"   /* context->Esp */
+                    "movq %rax,%rcx\n\t"         /* syscall number */
+                    "leaq 8(%r14),%rdx\n\t"      /* parameters */
++                   PROBE_FS_HOST
+                    "call " __ASM_NAME("Wow64SystemServiceEx") "\n\t"
+                    "movl %eax,0xb0(%r13)\n\t"   /* context->Eax */
+ 
+@@ -211,8 +220,12 @@
+                    "movl %edx,4(%rsp)\n\t"
+                    "movl 0xc4(%r13),%r14d\n\t"  /* context->Esp */
+                    "xchgq %r14,%rsp\n\t"
++                   PROBE_FS_GUEST
+                    "ljmp *(%r14)\n"
+                    ".Lsyscall_32to64_return:\n\t"
++#ifdef PROBE_FP_RESTORE
++                   PROBE_FP_RESTORE
++#endif
+                    "movq %rsp,%r14\n\t"
+                    "movl 0xa8(%r13),%edx\n\t"   /* context->Edx */
+                    "movl 0xac(%r13),%ecx\n\t"   /* context->Ecx */
+@@ -221,6 +234,7 @@
+                    "mov %ax,%ds\n\t"
+                    "mov %ax,%es\n\t"
+                    "mov 0x90(%r13),%fs\n\t"     /* context->SegFs */
++                   PROBE_FS_GUEST
+                    "movl 0xc4(%r13),%eax\n\t"   /* context->Esp */
+                    "movq %rax,0x18(%rsp)\n\t"
+                    "movl 0xc0(%r13),%eax\n\t"   /* context->EFlags */
+@@ -261,6 +275,7 @@
+                    "movq 4(%r14),%rcx\n\t"      /* handle */
+                    "movl 12(%r14),%edx\n\t"     /* code */
+                    "movl 16(%r14),%r8d\n\t"     /* args */
++                   PROBE_FS_HOST
+                    "callq *__wine_unix_call_dispatcher(%rip)\n\t"
+                    "movl %eax,0xb0(%r13)\n\t"   /* context->Eax */
+                    "btrl $0,-4(%r13)\n\t"       /* cpu->Flags & WOW64_CPURESERVED_FLAG_RESET_STATE */
+@@ -271,6 +286,7 @@
+                    "movl %edx,4(%rsp)\n\t"
+                    "movl 0xc4(%r13),%r14d\n\t"  /* context->Esp */
+                    "xchgq %r14,%rsp\n\t"
++                   PROBE_FS_GUEST
+                    "ljmp *(%r14)" )
+ 
+ 

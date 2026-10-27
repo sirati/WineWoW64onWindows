@@ -1,0 +1,5 @@
+--- a/dlls/ntdll/loader.c
++++ b/dlls/ntdll/loader.c
+@@ -2695,1 +2695,1 @@
+-    if ((status = NtOpenFile( &handle, GENERIC_READ | SYNCHRONIZE, &attr, &io,
++    if ((status = NtOpenFile( &handle, GENERIC_READ | GENERIC_EXECUTE | SYNCHRONIZE, &attr, &io,

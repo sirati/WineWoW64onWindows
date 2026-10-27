@@ -1,0 +1,115 @@
+Wine 11 WoW64 on native Windows, runtime integration
+
+Scope: socket-backed DLLs, APCs, IOCP/cancellation/callbacks, pending event
+and eventless I/O, guest threads/contexts, XSTATE, guarded stacks and
+mitigation compatibility. GUI, ARM64 and additional NT services are excluded.
+Linux MinGW-w64 cross-builds the implementation. Luna 6 executes VM tests
+and may create test helpers; it does not change implementation files.
+
+Architecture retained
+
+Wine loads the guest application and its normal DLLs. Original Wine PE
+ntdll/kernelbase/kernel32/msvcrt, loader indexes, TLS/FLS lifecycle, SEH/C++
+handlers, wow64 argument conversion, ws2_32 frontend, DNS/ancillary marshalling,
+APC dispatcher and IOSB publication remain in use. Native Windows adapters
+replace host storage, AFD/file operations and thread identities. No Linux
+file I/O backend or native Windows WoW64 EXE loader is used for the guest.
+The bootstrap uses private COFF symbols from a pinned Wine 11 PE build.
+
+Verified milestones
+
+- 083978e: full accepted baseline, 131 verified inputs, required failures 0.
+  Covered socket backend/extensions, APCs, IOCP, pending I/O, callbacks,
+  thread creation, contexts, TLS/FLS and lifecycle.
+- 18e2efe: guest APCs queued for initially suspended threads are held until
+  Wine startup is ready, preserving FIFO order across the initial drain.
+- 21751ed: completing I/O requests are excluded from cancellation selection
+  before notification, preventing selection of an old OVERLAPPED after reuse.
+- ba35054: native plus 10 Wine stack-growth controls pass; native plus three
+  Wine memory-protection controls pass.
+- aa58862: native exception XSAVE is copied to native-stack storage before
+  Wine builds an overlapping x86 dispatcher record on the guest stack.
+  Wine's original extended-context routines do the layout and copying.
+- d504a2f and 42f387d: native plus 10 Wine XSTATE runs pass. Coverage includes
+  100 transitions, APCs, exception-handler AVX edits, and suspended-worker
+  get/set/resume. Copying Windows FltSave must mark x87/SSE state valid before
+  full XRSTOR; otherwise the saved header can reset newly copied SSE bytes.
+  The 42f387d thread context, I/O notification, callbacks, stack growth and
+  mitigation controls also pass.
+
+Latest accepted focused candidate
+
+7769bee6030d47025f490e67f8f1ffe0458b2e25, 139 execution inputs.
+Host SHA256 961AD66BC1B910970833D3FCDBDF93BBA7CFC2394A1572936FBAF086C2CCE80A.
+
+Native plus 10 Wine repeated-overflow controls pass. Native plus five Wine
+AVX, stack-growth and expanded mitigation controls pass. Full regression is
+complete on this candidate, with zero required failures.
+
+This candidate adds Wine's memory-protection notification hook for CRT stack
+overflow reset. Wine _resetstkoflw guards its own active stack page. Windows
+can consume that guard while copying native protection-call outputs, without
+entering the guest stack handler. The hook runs Wine grow_thread_stack for
+that active page before the Wine thunk copies its remaining outputs back.
+Normal guard faults use the same original Wine routine and per-stack registry.
+
+The protection test now checks loaded bootstrap DLLs and the syscall gate,
+as well as the application image, NX execution and read-only writes.
+
+Mitigation boundaries
+
+The host/native DLL advertise DYNAMIC_BASE, HIGH_ENTROPY_VA and NX_COMPAT.
+DEP reporting uses the full structure, including its permanent flag.
+Forced ASLR and CFG launch policies run on the VM. The CFG result does not
+establish CFG instrumentation/enforcement for the Wine-loaded guest.
+Dynamic-code prohibition rejects the gate's RW-to-RX transition with Windows
+error 1655. CET-enabled and CET-strict launch both exit with c0000409 at host RVA 0x1194,
+the Wine IRETQ compatibility-mode restore. Exception info0 is hex 0x39,
+decimal 57, FAST_FAIL_CONTROL_INVALID_RETURN_ADDRESS. Raw policy logs and
+independent host disassembly are under evidence/final-runtime.
+These remain incompatibilities in the current bootstrap/transition design.
+No policy is disabled by the test launcher or the runtime.
+
+Test workflow and evidence
+
+Controller: /home/sirati/winvm/bin/winvm
+VM: wine-wow64-runtime-95894fa8, Windows 11 build 26100 x64.
+Freeze a committed worktree and run prototype/bundle-vm-candidate.py.
+The ZIP paths are relative to prototype. Extract at C:/wineprobe/prototype,
+run verify-candidate.ps1, then verify the deployed host hash before testing.
+VM helpers and reports live under each frozen worktree's evidence directory.
+Older iteration evidence archives are under root evidence/iterations.
+The accepted reports are consolidated under evidence/final-runtime. Canonical
+reports cover 284 required executions with zero failures, two matching
+round-trip hashes, and one known optional C++ nested-return failure. The
+packaged runner marks the deliberate FS-clearing test Wine-only by default;
+the tested implementation and binary hashes are unchanged.
+
+Build notes
+
+Wine winebuild emits its own export table. --exclude-all-symbols and
+--no-gc-sections keep MinGW auto-export generation from replacing that table.
+check-pe-exports.py verifies all 134 original ws2_32 names, ordinals and
+forwarders. GNU delay-import libraries plus Wine winecrt0 delay_load preserve
+lazy imports for dnsapi/iphlpapi/user32/advapi32.
+
+The filesystem-base recovery test deliberately clears guest FS and is Wine-
+only. Running it as a native Windows application is expected to crash because
+there is no host recovery handler in that mode.
+
+README.txt records compatibility. REMAINING-WORK.txt records unresolved
+items and estimated difficulty. Commit history retains prior diagnostics.
+
+Additional vector component evidence
+
+20efe74deaa69c6283e2d983ffb6b417ada8c045 passes native plus ten Wine
+suspended-thread set/resume/suspend/get runs. Requested feature mask is 0xe4.
+Features 2, 5, 6 and 7 have lengths 256, 64, 512 and 1024 bytes respectively.
+Native enabled mask is 0x8e7, Wine enabled mask is 0xe7. No mismatches occur.
+Raw reports and the candidate host hash are retained under
+evidence/final-runtime/xstate-components. This focused result does not replace
+the accepted full regression or prove every component's exception/APC path.
+
+6e6acd8 fiber switching passes native plus ten Wine runs. Fiber overflow passes
+natively and fails all ten Wine runs with c0000005. Broader regression results
+are retained in docs/regression-6e6acd8.txt. Fiber overflow is an open failure.

@@ -1,0 +1,20 @@
+Remaining runtime work
+
+The requested runtime controls now pass, including repeated stack-overflow
+recovery on main and worker threads. Results are recorded in README.txt and
+the Luna evidence bundles. This table lists the remaining gaps after the latest
+cross-builds. Difficulty is for this prototype, not for full Wine.
+
+| Area | Current result | Likely fix | Difficulty |
+|---|---|---|---|
+| Additional XSTATE components | Native plus 10 Wine runs on `20efe74` pass suspended-thread set/resume/suspend/get for AVX, opmask, ZMM_Hi256 and Hi16_ZMM, with no mismatches. | Enabled vector components are covered. Other hardware features require separate controls when exposed. | Further validation depends on hardware |
+| Fiber overflow recovery | Fiber switching, FLS and shared TLS pass native plus ten Wine runs. Fiber overflow passes natively but crashes in all ten Wine runs on `6e6acd8`. | A Windows stack-allocation/free adapter now reserves native exception-dispatch space and tracks Wine-created fiber stacks. It awaits VM validation with Wine stack-growth and CRT reset code. | Medium |
+| Forced dynamic-code policy | Policy child reports the policy enabled, then the bootstrap fails when it changes the gate page to executable. | Use image-backed bootstrap mappings and static executable gates, and remove runtime code patching. Changing only the gate allocation will not make the rest of the bootstrap compliant. | High |
+| CET/shadow-stack policy | CET and CET-strict fail at Wine IRETQ, host RVA 0x1194, with c0000409 and fast-fail 0x39, CONTROL_INVALID_RETURN_ADDRESS. | Adapt Wine's far-jump/IRET and continuation paths to Windows shadow-stack rules. This requires platform-specific transition work. | High |
+| Provider-specific Winsock controls | Standard TCP/UDP, DNS, poll/event, overlapped, IOCP, AcceptEx, ConnectEx, TransmitFile and WSARecvMsg IP_PKTINFO pass. Unknown provider ioctls return `STATUS_NOT_SUPPORTED`. | Add one native control adapter at a time with a matching 32-bit marshalling test. | Medium per control |
+| Rare asynchronous I/O lifetime cases | Pending event/eventless I/O, APC, IOCP, duplicate-handle, close and issuing-thread cancellation pass. Forced thread termination and less common driver completions need more coverage. Callers must keep asynchronous buffers valid until completion, as required on Windows. | Extend cancellation/drain stress tests and add adapters only for controls with a demonstrated pointer-layout difference. | Medium |
+| Extended APCEx2/reserve-object variants | Basic, initial suspended-thread, nested, alertable and I/O completion APC paths pass. APCEx2 reserve-object combinations are additional services outside the current scope. | Reuse Wine's APC frame and continuation code, then add native reserve-object bookkeeping. | Medium |
+| Less common thread information classes | Guest thread enumeration, TLS clearing, suspended creation and remote context subset pass. Other thread information classes are not mapped. | Add mappings only where an application needs them, using Wine's existing 32-bit structures. | Low to medium |
+| C++ nested returning-helper diagnostic | The focused nested-return diagnostic still fails in stock Wine 11 as well as the port. Normal catches, rethrow, destructor cleanup, worker exceptions and SEH pass. | First reproduce with a current upstream Wine build, then decide whether the test is invalid or needs a Wine exception-frame fix. | Unknown |
+| Broader unmodified applications | 7-Zip, Lua, SQLite, BusyBox and 7zr controls pass through Wine's loader. Universal application compatibility is not established. | Expand the corpus by DLL family and loader behavior. | High |
+| GUI, ARM64, additional NT services | Out of scope by request. | No work in this phase. | Excluded |

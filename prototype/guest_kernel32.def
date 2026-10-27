@@ -1,0 +1,28 @@
+LIBRARY kernel32.dll
+EXPORTS
+GetStdHandle@4
+GetCurrentProcessId@0
+GetTickCount64@0
+WriteFile@20
+VirtualAlloc@16
+VirtualFree@12
+Sleep@4
+ExitProcess@4
+ProbeGui@0
+GetCurrentDirectoryA@8
+GetCurrentThreadId@0
+GetProcessHeap@0
+TlsAlloc@0
+TlsFree@4
+TlsGetValue@4
+TlsSetValue@8
+CreateFileA@28
+CloseHandle@4
+DeleteFileA@4
+WaitForSingleObject@8
+CreateThread@24
+GetExitCodeThread@8
+ExitThread@4
+bridge_handle DATA
+bridge_gate DATA
+host_exit_gate DATA

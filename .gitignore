@@ -1,0 +1,15 @@
+/wine-wow64-cross-prototype.tar.gz*
+/prototype/out/*.o
+/prototype/out/*.obj
+/prototype/out/results/
+/evidence/
+/wine-11.0-source/
+/prototype/include/
+/prototype/stock-wine/
+/prototype/out/
+/prototype/unmodified/*
+!/prototype/unmodified/ORIGINS.txt
+!/prototype/unmodified/ordinary-main.c
+/result
+/result-*
+/wine-wow64-windows/

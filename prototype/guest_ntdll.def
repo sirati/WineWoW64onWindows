@@ -1,0 +1,12 @@
+LIBRARY ntdll.dll
+EXPORTS
+NtWriteFile@36
+NtClose@4
+NtAllocateVirtualMemory@24
+NtQueryInformationThread@20
+NtFreeVirtualMemory@16
+NtDelayExecution@8
+NtWaitForSingleObject@12
+NtCreateFile@44
+NtDeleteFile@4
+__wine_syscall_dispatcher DATA

@@ -1,0 +1,146 @@
+Native Windows asynchronous I/O adapter, Wine 11
+
+Implemented and tested
+
+The port retains Wine's original wow64_NtReadFile, wow64_NtWriteFile,
+wow64_NtFsControlFile and wow64_NtCancelIoFileEx functions. Their Windows
+backend calls are redirected at compile time to prototype/native_io.c. No additional Wine source patch is required.
+
+Wine's iosb_32to64 and put_iosb remain in the thunks. For event-based
+completion the adapter calls Wine's original set_async_iosb, extracted
+verbatim from dlls/ntdll/unix/unix_private.h during the build. That helper
+stores Information first, then publishes Status with release ordering.
+Wine's GetOverlappedResult reads Status with matching acquire ordering.
+The helper's server-pointer access is just a local pointer adapter here;
+no Unix server or Linux file-I/O implementation is used.
+
+Request ownership
+
+  - The Wine thunk starts with its temporary native block pointing to the
+    guest IO_STATUS_BLOCK32. The adapter reads that marker and leaves it
+    unchanged, preventing a later thunk copy from overwriting completion.
+  - Event-based requests receive a heap-owned native IO_STATUS_BLOCK,
+    private native event, duplicate of the guest event, and native
+    thread-pool wait. These remain alive after STATUS_PENDING returns.
+  - Immediate completion publishes any result Windows wrote, signals the
+    guest event if Windows signaled the private event, then frees storage.
+  - Pending completion publishes through Wine's set_async_iosb before
+    signaling the duplicated guest event, then releases the wait, events
+    and heap record. Closing/reusing the caller's original event handle
+    cannot redirect notification to a different object.
+  - Synchronous handles without an event retain the normal native call
+    and Wine put_iosb path. FileModeInformation verifies that the handle
+    is synchronous before using a stack-local status block.
+  - Wine's original NtCancelIoFile thunk and native Windows cancellation
+    support CancelIo on the issuing thread. Kernel completion still owns
+    the persistent request until notification, including error results.
+  - Targeted CancelIoEx maps Wine's guest status-block identifier to the
+    retained native block. A locked request list and reference count keep
+    that block alive across completion/cancellation races. The native call
+    runs outside the list lock. Windows validates the supplied file object,
+    so duplicated file handles work and unrelated files are rejected. NULL
+    cancels all matching requests on the specified file. Completed/unknown
+    identifiers return STATUS_NOT_FOUND. Each outstanding request must use
+    its own status block, as required by the Win32 OVERLAPPED contract.
+
+Native completion workers only publish a status block and signal an event.
+They do not execute guest application code, so they need no guest thread
+initialization. Guest workers continue to enter Wine loader_init and
+LdrShutdownThread. APC completion runs on the issuing thread through Wine's
+original APC dispatcher and continuation code. Guest state comes from the
+Wine thread registry and the native-to-guest transition adapter.
+
+Evidence
+
+prototype/async_event32.c uses normal Win32 file/event APIs. A separate
+native x64 test peer withholds data until requested, forcing pending
+reads. It also refuses to drain a 64 KiB write until a command on a second
+pipe releases it; the pipe's quota is only 4 KiB. Pending is asserted, not
+inferred from a successful operation that could have completed immediately.
+
+The same x86 EXE runs as a native Windows control and through Wine's loader.
+The peer validates the full write payload. The probe verifies:
+
+  - pending read/write status and byte counts;
+  - GetOverlappedResult polling and waiting;
+  - resetting and reusing an initially signaled event;
+  - two simultaneously outstanding reads;
+  - immediate buffered reads and immediate small writes;
+  - CancelIo and ERROR_OPERATION_ABORTED propagation;
+  - cancellation from another Wine-managed guest worker of exactly one of
+    two reads on the same file; the other read remains pending and succeeds;
+  - completed/unknown request identifiers and file-scoped cancel-all;
+  - 64 completion/cancellation races, draining a peer reply if cancellation
+    wins so later iterations cannot consume stale data;
+  - closing the notification event while the request is pending;
+  - file-handle-close completion, accepting native CANCELLED or PIPE_BROKEN
+    according to whether cancellation or peer disconnect completes first;
+  - 128 read/cancel cycles without accumulating native request handles.
+
+Run prototype/run-async-tests.ps1 on Windows. -Repeats 30 repeats the port
+case and also runs a native control. Every process has a timeout.
+
+Remaining limits
+
+APCs, IOCP association and eventless asynchronous reads/writes are now
+implemented. Guest IOSB publication precedes event, APC and IOCP notification.
+File aliases retain metadata rather than native file handles, preserving
+last-close cancellation. Completion marks a request as completing before
+notification, so cancellation cannot select an old request after an
+OVERLAPPED is reused. Issuing-thread return and ExitThread drain outstanding
+requests before Wine releases the guest stack. This establishes the tested
+ordinary-exit paths, not forced termination or every asynchronous operation.
+
+Device controls and scatter/gather still need native request-lifetime
+handling and tests. Filesystem-control support below concerns standard
+named-pipe buffers. Control buffers containing pointers or architecture-
+dependent fields need their own conversion. This is not all Windows async
+I/O. Forced thread termination and freeing application buffers/status blocks
+before completion are outside the tested lifetime contract.
+
+Named-pipe integration, verified
+
+The current source also routes Wine's original wow64_NtFsControlFile
+through the same retained-request adapter and dispatches Wine's
+wow64_NtCreateNamedPipeFile. No source patch to either thunk is needed.
+Wine passes a zero native default timeout for CreateNamedPipe(timeout=0).
+Windows NPFS rejects zero; a small adapter supplies Win32's 50ms default
+as a negative relative timeout. Other supplied timeouts pass through.
+ConnectNamedPipe, TransactNamedPipe, PeekNamedPipe and DisconnectNamedPipe
+remain Wine implementations. The native adapter initializes pending status
+through set_async_iosb before arming completion, because not every Wine
+caller initializes OVERLAPPED.Internal. Eventless peek/disconnect use
+retained storage and wait if necessary; completion for pending controls uses
+the same event, APC, IOCP and eventless notification adapter.
+
+prototype/pipe_control32.c forces pending connect and transaction calls
+with an independently controlled native peer. It exercises 32 transactions,
+status polling, partial peek, read-after-peek, transaction/listen
+cancellation, disconnect/reconnect and ERROR_PIPE_CONNECTED on a newly
+created instance. Pending byte counts are not assumed to be initialized;
+the probe checks Information and byte counts at completion.
+Run run-async-tests.ps1 -PipeControls [-Repeats 30].
+
+async_event32 also checks 32 issuing-worker exits,
+including return and ExitThread, with caller-owned buffers/status blocks.
+It also exercises cancellation through both duplicate file handles and
+rejection of a targeted cancellation against an unrelated file. Wine's
+original NtDuplicateObject thunk handles the guest DuplicateHandle call.
+Wine's original NtWaitForMultipleObjects thunk is connected and tested
+with wait-any, wait-all and timeout cases. Both x86 probes pass native
+Windows controls and Wine. The final suite passes 55 required checks and
+320 repeat runs, with two matching extraction hashes and no timeouts.
+All 51 output PE files and 102 execution inputs match the frozen candidate
+ee63cfe5e390b47cef00af6bf02fd0acd83c09b0.
+
+Frozen VM candidates
+
+Use bundle-vm-candidate.py from a clean frozen checkout. Its ZIP includes
+out/, unmodified/, the exact PowerShell runners, an execution-input hash
+manifest and verify-candidate.ps1. Expand at C:/wineprobe/prototype and
+verify all files before testing. Hashing only PE files does not establish
+which runner executed them. An earlier named-pipe test attempt reused an
+old runner that ignored -PipeControls and only ran async_event32; those
+logs are invalid as named-pipe evidence. Current runners reject unknown
+parameters, identify their probe in JSON and require its exact success
+message. Check those fields as well as exits and hashes.

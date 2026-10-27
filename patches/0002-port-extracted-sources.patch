@@ -1,0 +1,148 @@
+--- a/dlls/wow64cpu/cpu.c
++++ b/dlls/wow64cpu/cpu.c
+@@ -30,6 +30,14 @@
+ #include "wine/debug.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(wow);
++
++/* Optional native-Windows host hooks. Empty in the upstream Unix backend.
++ * The host must restore the FS base after loading a selector and after any
++ * Windows API calls, immediately before compatibility-mode execution. */
++#ifndef PROBE_FS_HOST
++#define PROBE_FS_HOST ""
++#define PROBE_FS_GUEST ""
++#endif
+ 
+ #pragma pack(push,1)
+ struct thunk_32to64
+@@ -195,6 +203,10 @@
+                    "movl %edx,0xc4(%r13)\n\t"   /* context->Esp */
+                    "movq %rax,%rcx\n\t"         /* syscall number */
+                    "leaq 8(%r14),%rdx\n\t"      /* parameters */
++#ifdef PROBE_FP_SAVE
++                   PROBE_FP_SAVE
++#endif
++                   PROBE_FS_HOST
+                    "call " __ASM_NAME("Wow64SystemServiceEx") "\n\t"
+                    "movl %eax,0xb0(%r13)\n\t"   /* context->Eax */
+ 
+@@ -203,6 +215,9 @@
+                    "movl 0xa0(%r13),%esi\n\t"   /* context->Esi */
+                    "movl 0xa4(%r13),%ebx\n\t"   /* context->Ebx */
+                    "movl 0xb4(%r13),%ebp\n\t"   /* context->Ebp */
++#ifdef PROBE_FP_RESTORE
++                   PROBE_FP_RESTORE
++#endif
+                    "btrl $0,-4(%r13)\n\t"       /* cpu->Flags & WOW64_CPURESERVED_FLAG_RESET_STATE */
+                    "jc .Lsyscall_32to64_return\n\t"
+                    "movl 0xb8(%r13),%edx\n\t"   /* context->Eip */
+@@ -211,8 +226,12 @@
+                    "movl %edx,4(%rsp)\n\t"
+                    "movl 0xc4(%r13),%r14d\n\t"  /* context->Esp */
+                    "xchgq %r14,%rsp\n\t"
++                   PROBE_FS_GUEST
+                    "ljmp *(%r14)\n"
+                    ".Lsyscall_32to64_return:\n\t"
++#ifdef PROBE_FP_RESTORE
++                   PROBE_FP_RESTORE
++#endif
+                    "movq %rsp,%r14\n\t"
+                    "movl 0xa8(%r13),%edx\n\t"   /* context->Edx */
+                    "movl 0xac(%r13),%ecx\n\t"   /* context->Ecx */
+@@ -221,6 +240,7 @@
+                    "mov %ax,%ds\n\t"
+                    "mov %ax,%es\n\t"
+                    "mov 0x90(%r13),%fs\n\t"     /* context->SegFs */
++                   PROBE_FS_GUEST
+                    "movl 0xc4(%r13),%eax\n\t"   /* context->Esp */
+                    "movq %rax,0x18(%rsp)\n\t"
+                    "movl 0xc0(%r13),%eax\n\t"   /* context->EFlags */
+@@ -261,8 +281,15 @@
+                    "movq 4(%r14),%rcx\n\t"      /* handle */
+                    "movl 12(%r14),%edx\n\t"     /* code */
+                    "movl 16(%r14),%r8d\n\t"     /* args */
++#ifdef PROBE_FP_SAVE
++                   PROBE_FP_SAVE
++#endif
++                   PROBE_FS_HOST
+                    "callq *__wine_unix_call_dispatcher(%rip)\n\t"
+                    "movl %eax,0xb0(%r13)\n\t"   /* context->Eax */
++#ifdef PROBE_FP_RESTORE
++                   PROBE_FP_RESTORE
++#endif
+                    "btrl $0,-4(%r13)\n\t"       /* cpu->Flags & WOW64_CPURESERVED_FLAG_RESET_STATE */
+                    "jc .Lsyscall_32to64_return\n\t"
+                    "movl 0xb8(%r13),%edx\n\t"   /* context->Eip */
+@@ -271,6 +298,7 @@
+                    "movl %edx,4(%rsp)\n\t"
+                    "movl 0xc4(%r13),%r14d\n\t"  /* context->Esp */
+                    "xchgq %r14,%rsp\n\t"
++                   PROBE_FS_GUEST
+                    "ljmp *(%r14)" )
+ 
+ 
+--- a/dlls/wow64/wow64_private.h
++++ b/dlls/wow64/wow64_private.h
+@@ -73,7 +73,12 @@
+ 
+ static inline TEB32 *NtCurrentTeb32(void)
+ {
++#ifdef PROBE_NATIVE_WINDOWS
++    extern TEB32 *probe_current_teb32(void);
++    return probe_current_teb32();
++#else
+     return (TEB32 *)((char *)NtCurrentTeb() + NtCurrentTeb()->WowTebOffset);
++#endif
+ }
+ 
+ static inline ULONG get_ulong( UINT **args ) { return *(*args)++; }
+--- a/dlls/ws2_32/socket.c
++++ b/dlls/ws2_32/socket.c
+@@ -4017,6 +4017,17 @@
+         }
+     }
+ 
++#ifdef PROBE_NATIVE_WINDOWS
++    {
++        struct { int family, type, protocol; DWORD flags, handle, error; } params = { af, type, protocol, flags };
++        if (WINE_UNIX_CALL( ws_unix_funcs_count, &params ))
++        {
++            WSASetLastError( params.error );
++            return INVALID_SOCKET;
++        }
++        handle = ULongToHandle( params.handle );
++    }
++#else
+     InitializeObjectAttributes(&attr, &string, (flags & WSA_FLAG_NO_HANDLE_INHERIT) ? 0 : OBJ_INHERIT, NULL, NULL);
+     if ((status = NtOpenFile(&handle, GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE, &attr,
+             &io, 0, (flags & WSA_FLAG_OVERLAPPED) ? 0 : FILE_SYNCHRONOUS_IO_NONALERT)))
+@@ -4047,6 +4058,7 @@
+         return INVALID_SOCKET;
+     }
+ 
++#endif
+     ret = HANDLE2SOCKET(handle);
+     TRACE( "created %#Ix\n", ret );
+ 
+--- a/dlls/ntdll/unix/socket.c
++++ b/dlls/ntdll/unix/socket.c
+@@ -539,7 +539,9 @@
+         struct cmsghdr_32 *cmsg32 = (struct cmsghdr_32 *)ptr32;
+         const WSACMSGHDR *cmsg64 = (const WSACMSGHDR *)ptr64;
+ 
+-        if (ptr32 + sizeof(*cmsg32) + cmsg_align_32( cmsg64->cmsg_len ) > buf32 + max_len)
++        if (cmsg64->cmsg_len < sizeof(*cmsg64) ||
++            cmsg64->cmsg_len > control64->buf + control64->len - ptr64 ||
++            ptr32 + cmsg_align_32( sizeof(*cmsg32) + cmsg64->cmsg_len - sizeof(*cmsg64) ) > buf32 + max_len)
+         {
+             control32->len = 0;
+             return 0;
+@@ -548,7 +550,7 @@
+         cmsg32->cmsg_len = cmsg64->cmsg_len - sizeof(*cmsg64) + sizeof(*cmsg32);
+         cmsg32->cmsg_level = cmsg64->cmsg_level;
+         cmsg32->cmsg_type = cmsg64->cmsg_type;
+-        memcpy( cmsg32 + 1, cmsg64 + 1, cmsg64->cmsg_len );
++        memcpy( cmsg32 + 1, cmsg64 + 1, cmsg64->cmsg_len - sizeof(*cmsg64) );
+ 
+         ptr64 += WSA_CMSG_ALIGN( cmsg64->cmsg_len );
+         ptr32 += cmsg_align_32( cmsg32->cmsg_len );
