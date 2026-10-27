@@ -5,7 +5,7 @@ This prototype keeps application loading inside Wine while the host process is a
 Build:
 
   nix build
-  nix run -- ./wine-wow64-windows
+  nix run . -- ./wine-wow64-windows
 
 The build extracts Wine 11 WoW64 conversion and dispatch code, cross-builds Wine's ws2_32 frontend and winecrt0 delay loader, and links native Windows adapters. The Nix expression supplies PROBE_CC64, PROBE_CC32, PROBE_DLLTOOL32 and PROBE_NM32 from its locked toolchain. Clang/lld is used only for the Microsoft ABI exception controls. The historical `build-windows.ps1` does not build the current runtime; use `build-linux.sh`.
 

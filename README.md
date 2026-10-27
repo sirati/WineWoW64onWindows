@@ -8,7 +8,7 @@ Build with Nix on x86_64 Linux:
 
 ```sh
 nix build
-nix run -- ./wine-wow64-windows
+nix run . -- ./wine-wow64-windows
 ```
 
 The first command produces the store output. The second copies it to a writable

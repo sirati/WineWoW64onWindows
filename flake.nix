@@ -18,7 +18,7 @@
         destination="''${1:-wine-wow64-windows}"
         ${pkgs.coreutils}/bin/mkdir -p "$destination"
         ${pkgs.coreutils}/bin/cp -R --no-preserve=mode ${runtime}/. "$destination/"
-        printf 'Windows runtime and test helpers copied to %s\n' "$destination"
+        printf 'Windows runtime copied to %s\n' "$destination"
       ''}";
     };
   };

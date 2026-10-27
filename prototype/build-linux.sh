@@ -72,6 +72,7 @@ crtend=$($cc64 -print-file-name=crtend.o)
 "$cc32" -shared -nostdlib prototype/transition32.S prototype/transition32.def \
   -Wl,--entry,0,--image-base,0x20000000,--dynamicbase,--nxcompat \
   -o prototype/out/guest/transition32.dll
+python3 prototype/check-transition-image.py prototype/out/guest/transition32.dll
 
 guest_flags=(-O2 -D_WIN32_WINNT=0x0601 -ffreestanding -fno-stack-protector -nostdlib)
 "$cc32" "${guest_flags[@]}" prototype/hello32.c -lkernel32 prototype/out/libguest_kernel32.a \
