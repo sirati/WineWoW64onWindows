@@ -6,12 +6,6 @@
 #include "out/wine-ntdll-symbols.h"
 #define TRACE(...) do {} while(0)
 #define TRACE_(channel) TRACE
-static RTL_OSVERSIONINFOEXW host_version;
-static const RTL_OSVERSIONINFOEXW *current_version=&host_version;
-__declspec(dllexport) NTSTATUS WINAPI ProbeRtlGetVersion(RTL_OSVERSIONINFOEXW *);
-#define RtlGetVersion ProbeRtlGetVersion
-#include "out/wine-version-routine.inc"
-#undef RtlGetVersion
 BOOL WINAPI DllMain(HINSTANCE module,DWORD reason,void *reserved)
 { (void)module;(void)reason;(void)reserved;return TRUE; }
 __declspec(dllexport) void WINAPI ProbeInitRuntime(void)
@@ -25,9 +19,6 @@ __declspec(dllexport) void WINAPI ProbeInitRuntime(void)
     RtlInitNlsTables(peb->AnsiCodePageData,peb->OemCodePageData,peb->UnicodeCaseTableData,&nls);
     RtlResetRtlTranslations(&nls);
     RtlInitializeCriticalSection(&peb_lock);peb->FastPebLock=&peb_lock;
-    host_version.dwMajorVersion=peb->OSMajorVersion;host_version.dwMinorVersion=peb->OSMinorVersion;
-    host_version.dwBuildNumber=peb->OSBuildNumber;host_version.dwPlatformId=peb->OSPlatformId;
-    host_version.wProductType=VER_NT_WORKSTATION;
     peb->TlsBitmap=&tls_bitmap;peb->TlsExpansionBitmap=&tls_expansion_bitmap;
     RtlInitializeBitMap(&tls_bitmap,peb->TlsBitmapBits,sizeof(peb->TlsBitmapBits)*8);
     RtlInitializeBitMap(&tls_expansion_bitmap,peb->TlsExpansionBitmapBits,sizeof(peb->TlsExpansionBitmapBits)*8);

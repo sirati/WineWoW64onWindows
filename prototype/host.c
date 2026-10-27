@@ -9,6 +9,7 @@
 #include "cpu_host.h"
 #include "native_threads.h"
 #include "native_io.h"
+#include "out/wine-ntdll-symbols.h"
 extern DWORD WINAPI probe_run32(I386_CONTEXT *);
 extern void probe_exit64(void),syscall_32to64(void),unix_call_32to64(void);
 extern void **__wine_unix_call_dispatcher;
@@ -940,6 +941,16 @@ int main(int argc,char **argv)
     ((void **)table)[BRIDGE_THREAD_EXIT]=(void *)bridge_thread_exit;
     printf("NATIVE64 module=%p table=%p\n",native,table);
     struct guest_module *nt=load_image(wine_components?"stock-wine/ntdll.dll":"guest/ntdll.dll","ntdll.dll");
+    if(wine_components)
+    {
+        RTL_OSVERSIONINFOEXW *version=low_alloc(0x36000000,4096,PAGE_READWRITE);
+        if(!version)fail("Wine version state");
+        version->dwOSVersionInfoSize=sizeof(*version);
+        if(RtlGetVersion(version))fail("query native version");
+        /* Initialize Wine's original version routines through their data,
+         * rather than replacing RtlGetVersion executable bytes. */
+        *(DWORD *)(nt->base+WINE_NTDLL_current_version)=(DWORD)(ULONG_PTR)version;
+    }
     struct guest_module *kb=wine_components?load_image("stock-wine/kernelbase.dll","kernelbase.dll"):0;
     struct guest_module *k32=load_image(wine_components?"stock-wine/kernel32.dll":"guest/kernel32.dll","kernel32.dll");
     struct guest_module *crt=wine_components?load_image("stock-wine/msvcrt.dll","msvcrt.dll"):0;
@@ -976,11 +987,6 @@ int main(int argc,char **argv)
     if(wine_components) disable_guest_debug(nt);
     if(wine_components)probe_exception_init(guest_export(nt,"KiUserExceptionDispatcher",0),ss);
     if(wine_components)probe_apc_init(guest_export(nt,"KiUserApcDispatcher",0));
-    if(wine_components)
-    {
-        BYTE *dst=guest_export(nt,"RtlGetVersion",0),*src=guest_export(bootstrap,"ProbeRtlGetVersion",0);
-        dst[0]=0xe9;*(int32_t *)(dst+1)=(int32_t)(src-(dst+5));
-    }
     *(DWORD *)guest_export(nt,"__wine_syscall_dispatcher",0)=(DWORD)(uintptr_t)&gate[0];
     { void *u=guest_export(nt,"__wine_unix_call_dispatcher",0); if(u) *(DWORD *)(uintptr_t)u=(DWORD)(uintptr_t)&gate[1];
       void *h=guest_export(nt,"__wine_unixlib_handle",0); if(h) *(uint64_t *)(uintptr_t)h=(uint64_t)(uintptr_t)table; }
