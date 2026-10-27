@@ -1,0 +1,61 @@
+Focused Windows VM validation, 2026-10-27
+
+Frozen source: d7eaf54026595d0963f128c334b87aa5161d0a94
+Separate worktree: 2026-10-27-wine-main-relocation-bss-luna
+Tester: Luna 6; no production edits. Windows 11 x64, build 26100.
+Windows verified all 88 candidate files.
+Host SHA256: F89CE300356A82FC0F9D0ACD58A60D93C4CBB5E6840682D3F6FEC94939FAD880
+Nix tests: /nix/store/xy9naa1d2rxhykhizf6zg7cmqnicj6js-wine-wow64-windows-11.0-tests
+The store path identifies the tested output and is not a build input.
+
+The only runtime change after the full 22ec829 regression is the main-image
+relocator's empty-BSS protection adapter. The focused checks below validate
+that change and replace the rejected initial stress rows from that run.
+
+| Check | Audited result |
+|---|---|
+| Context queries racing thread exit | Native plus thirty Wine runs passed, numeric exit zero, no timeout; each run covers 64 thread lifetimes |
+| Forced I/O issuer exit from a guest spin loop | Native plus twenty Wine runs passed, mode 1, exact fixture marker, numeric exit zero, no timeout |
+| Main EXE canonical collision | Five context and three hello runs passed, each confirming Wine relocation; no empty-range protection errors |
+| Stock-Wine ntdll canonical collision | Relocation and context fixture passed, numeric exit zero |
+| Dynamic-code policy without collision | Hello passed, child dynamic=1, exit zero |
+| Dynamic-code policy with EXE or stock ntdll collision | Both exited 80 with Windows error 1655 and no execute access violation |
+| Three fixed-base unmodified EXE collisions | All failed cleanly with STATUS_CONFLICTING_ADDRESSES before execution; relocation is impossible with the supplied images |
+
+The primary checked the corrected context and I/O JSON rows for exact
+fixture markers, modes, numeric exits and timeouts. Actual program paths
+and argument strings are recorded. The initial unquoted Wine --spin attempt
+selected mode 0 and includes a timeout; it remains under
+attempt-unquoted-spin-invalid/ and is excluded from spin coverage. The
+corrected twenty-run matrix passed a quoted argument with trailing space.
+The later test-only 0d72f0d parser change accepts normal closing quotes.
+
+The 7za, Lua and SQLite collision controls each deliberately occupied
+0x00400000. All three pinned EXEs set IMAGE_FILE_RELOCS_STRIPPED and have
+an empty relocation directory. Wine's original relocator returned c0000018;
+the host reported Windows error 487. These are not relocatable executables.
+Their normal unmodified executions pass in the full 22ec829 regression.
+
+Unsafe wait-entry termination remains a separate observed failure. On
+5d34797, three of fifty debugger runs self-exited 98 after dumping timeout
+stacks. One surviving main thread was waiting on files_lock through
+get_file / duplicate_wait_handle / probe_NtWaitForSingleObject. Its native
+lock argument matched the mapped files_lock address. Two others blocked
+while logging a service result through native CRT stderr. The ready event
+does not prove that the worker has finished all adapters or reached its
+kernel wait. The spin-mode control publishes readiness after those calls
+return. It verifies cancellation/publication lifetime but does not resolve
+termination while an adapter or native CRT lock is held.
+
+The full accepted regression is in validation-22ec829.txt. CET remains open;
+see cet-investigation.txt. The optional nested C++ returning-helper diagnostic
+still fails in upstream Wine 11 as well as this port.
+
+Raw evidence is retained under the frozen worktree:
+evidence/vm-test-main-relocation-bss-results/raw/
+verified-thread-exit-context.json and corrected-spin/raw.json are the
+accepted stress matrices. main-exe-collisions/, bootstrap-ntdll-collision/,
+dynamic-policy/ and unmodified-collisions/ retain exact commands and streams.
+The incorrect small guest/ntdll.dll policy attempt is preserved separately.
+Unsafe timeout stacks are in the 2026-10-27-wine-io-exit-stacks-luna worktree,
+evidence/ioexit-stress-results/results/wine-debug-{1,4,5}.stderr.txt.

@@ -65,5 +65,8 @@ application commands with dynamic-code prohibition enabled. See
 [the current regression report](docs/validation-22ec829.txt) for hashes,
 accepted results and excluded harness runs. Earlier dynamic-code acceptance
 is recorded in [the image-bootstrap report](docs/validation-d34a200.txt).
+The [focused follow-up](docs/validation-d7eaf54.txt) verifies the corrected
+context/I/O exit stress cases, canonical-address collisions and clean policy
+failures.
 CET and forced termination during adapter calls remain open. Universal unmodified
 application compatibility is not established.
