@@ -70,6 +70,33 @@ extern void (WINAPI *pBTCpuNotifyMemoryProtect)(void *,SIZE_T,ULONG,BOOL,NTSTATU
 static void *guest_export(struct guest_module *m,const char *name,WORD ordinal);
 static void fail(const char *s);
 static void fail(const char *s) { fprintf(stderr,"FAIL %s, Windows error %lu\n",s,GetLastError()); exit(80); }
+/* The loader's bootstrap runs before guest ntdll is callable. Compile Wine's
+ * existing relocator for PE32 headers against native memory/heap services.
+ * Protection failure is terminal during startup, rather than proceeding with
+ * a write after Wine's original unchecked protection request failed. */
+static NTSTATUS WINAPI bootstrap_relocation_protect(HANDLE process,void **address,SIZE_T *size,
+                                                   ULONG protection,ULONG *previous)
+{
+    NTSTATUS status=NtProtectVirtualMemory(process,address,size,protection,previous);
+    if(status<0){SetLastError(RtlNtStatusToDosError(status));fail("bootstrap relocation protection");}
+    return status;
+}
+static void *get_rva(void *module,DWORD offset) { return (BYTE *)module+offset; }
+#define IMAGE_NT_HEADERS IMAGE_NT_HEADERS32
+#define LdrProcessRelocationBlock bootstrap_LdrProcessRelocationBlock
+#define NtProtectVirtualMemory bootstrap_relocation_protect
+#define page_size 4096
+#define TRACE(...) do {} while(0)
+#define WARN(...) do {} while(0)
+#define FIXME(...) do {} while(0)
+#include "out/wine-bootstrap-relocations.inc"
+#undef FIXME
+#undef WARN
+#undef TRACE
+#undef page_size
+#undef NtProtectVirtualMemory
+#undef LdrProcessRelocationBlock
+#undef IMAGE_NT_HEADERS
 struct guest_stack { LIST_ENTRY entry; BYTE *base,*guest_base; SIZE_T reserve,commit; BYTE *limit,*guard; TEB32 *teb; BOOL guest_allocated; };
 static SRWLOCK stack_lock=SRWLOCK_INIT;
 static LIST_ENTRY stacks={&stacks,&stacks};
@@ -276,7 +303,19 @@ static struct guest_module *load_image(const char *path,const char *name)
     if(nt->Signature!=IMAGE_NT_SIGNATURE||nt->FileHeader.Machine!=IMAGE_FILE_MACHINE_I386||
        nt->OptionalHeader.Magic!=IMAGE_NT_OPTIONAL_HDR32_MAGIC)fail("expected i386 PE32 image");
     if(nmods>=128||nt->OptionalHeader.SizeOfImage>64*1024*1024)fail("image limit");
-    if((uintptr_t)base!=nt->OptionalHeader.ImageBase)fail("bootstrap canonical image address unavailable");
+    if((uintptr_t)base!=nt->OptionalHeader.ImageBase)
+    {
+        PROCESS_MITIGATION_DYNAMIC_CODE_POLICY policy={0};
+        if(!GetProcessMitigationPolicy(GetCurrentProcess(),ProcessDynamicCodePolicy,&policy,sizeof(policy)))
+            fail("query bootstrap relocation policy");
+        if(policy.ProhibitDynamicCode)
+        { SetLastError(ERROR_DYNAMIC_CODE_BLOCKED);fail("bootstrap address conflict requires executable relocation"); }
+        if(!(nt->FileHeader.Characteristics&IMAGE_FILE_DLL))fail("bootstrap EXE address conflict");
+        printf("BOOTSTRAP_RELOCATE %s canonical=%08lx mapped=%p\n",name,nt->OptionalHeader.ImageBase,base);
+        NTSTATUS relocation=perform_relocations(base,nt,size);
+        if(relocation){SetLastError(RtlNtStatusToDosError(relocation));fail("Wine bootstrap relocation");}
+        FlushInstructionCache(GetCurrentProcess(),base,size);
+    }
     struct guest_module *m;
     m=&mods[nmods];size_t name_len=strlen(name);if(name_len>=sizeof(mod_names[nmods]))name_len=sizeof(mod_names[nmods])-1;
     memcpy(mod_names[nmods],name,name_len);mod_names[nmods][name_len]=0;
