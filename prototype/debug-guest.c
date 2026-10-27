@@ -62,10 +62,22 @@ int main(void)
                 CONTEXT c={.ContextFlags=CONTEXT_ALL};GetThreadContext(thread,&c);CloseHandle(thread);
                 HANDLE process=OpenProcess(PROCESS_VM_READ,FALSE,event.dwProcessId);
                 BYTE code[16]={0};SIZE_T read;ReadProcessMemory(process,(void *)c.Rip,code,sizeof(code),&read);
-                fprintf(stderr,"DEBUG_EXCEPTION #%u pid=%lu first=%lu code=%08lx rip=%llx rsp=%llx cs=%x info0=%llx fault=%llx eax=%llx ecx=%llx edx=%llx edi=%llx esi=%llx ebp=%llx bytes=",++count,event.dwProcessId,ex->dwFirstChance,ex->ExceptionRecord.ExceptionCode,c.Rip,c.Rsp,c.SegCs,(unsigned long long)ex->ExceptionRecord.ExceptionInformation[0],(unsigned long long)ex->ExceptionRecord.ExceptionInformation[1],c.Rax,c.Rcx,c.Rdx,c.Rdi,c.Rsi,c.Rbp);
+                fprintf(stderr,"DEBUG_EXCEPTION #%u pid=%lu tid=%lu first=%lu code=%08lx rip=%llx rsp=%llx cs=%x info0=%llx fault=%llx eax=%llx ecx=%llx edx=%llx edi=%llx esi=%llx ebp=%llx bytes=",++count,event.dwProcessId,event.dwThreadId,ex->dwFirstChance,ex->ExceptionRecord.ExceptionCode,c.Rip,c.Rsp,c.SegCs,(unsigned long long)ex->ExceptionRecord.ExceptionInformation[0],(unsigned long long)ex->ExceptionRecord.ExceptionInformation[1],c.Rax,c.Rcx,c.Rdx,c.Rdi,c.Rsi,c.Rbp);
                 for(unsigned i=0;i<16;i++)fprintf(stderr,"%02x",code[i]);fputc('\n',stderr);
                 DWORD stack[12]={0};ReadProcessMemory(process,(void *)c.Rsp,stack,sizeof(stack),&read);
                 fputs("DEBUG_STACK",stderr);for(unsigned i=0;i<12;i++)fprintf(stderr," %08lx",stack[i]);fputc('\n',stderr);
+                if(c.SegCs==0x23&&ex->ExceptionRecord.ExceptionInformation[0]==8&&stack[0]>=6)
+                {
+                    BYTE call[6]={0};DWORD slot=0,target=0;
+                    if(ReadProcessMemory(process,(void *)(ULONG_PTR)(stack[0]-6),call,sizeof(call),&read)&&
+                       call[0]==0xff&&call[1]==0x15)
+                    {
+                        memcpy(&slot,call+2,sizeof(slot));
+                        ReadProcessMemory(process,(void *)(ULONG_PTR)slot,&target,sizeof(target),&read);
+                        fprintf(stderr,"DEBUG_INDIRECT_CALL tid=%lu return=%08lx slot=%08lx target=%08lx\n",
+                                event.dwThreadId,stack[0],slot,target);
+                    }
+                }
                 CloseHandle(process);
             }
         }
