@@ -305,10 +305,12 @@ static struct guest_module *load_image(const char *path,const char *name)
     if(nmods>=128||nt->OptionalHeader.SizeOfImage>64*1024*1024)fail("image limit");
     if((uintptr_t)base!=nt->OptionalHeader.ImageBase)
     {
-        PROCESS_MITIGATION_DYNAMIC_CODE_POLICY policy={0};
-        if(!GetProcessMitigationPolicy(GetCurrentProcess(),ProcessDynamicCodePolicy,&policy,sizeof(policy)))
+        typedef BOOL (WINAPI *query_policy_t)(HANDLE,PROCESS_MITIGATION_POLICY,void *,SIZE_T);
+        query_policy_t query=(query_policy_t)GetProcAddress(GetModuleHandleA("kernel32.dll"),"GetProcessMitigationPolicy");
+        DWORD policy=0;
+        if(!query||!query(GetCurrentProcess(),ProcessDynamicCodePolicy,&policy,sizeof(policy)))
             fail("query bootstrap relocation policy");
-        if(policy.ProhibitDynamicCode)
+        if(policy&1)
         { SetLastError(ERROR_DYNAMIC_CODE_BLOCKED);fail("bootstrap address conflict requires executable relocation"); }
         if(!(nt->FileHeader.Characteristics&IMAGE_FILE_DLL))fail("bootstrap EXE address conflict");
         printf("BOOTSTRAP_RELOCATE %s canonical=%08lx mapped=%p\n",name,nt->OptionalHeader.ImageBase,base);
