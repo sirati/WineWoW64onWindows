@@ -13,6 +13,7 @@
       default = runtime;
       corpus = pkgs.callPackage ./nix/corpus.nix { };
       image-mapping-diagnostic = pkgs.callPackage ./nix/image-diagnostic.nix { };
+      continuation-diagnostic = pkgs.callPackage ./nix/continuation-diagnostic.nix { };
     };
     apps.${system}.default = {
       type = "app";
