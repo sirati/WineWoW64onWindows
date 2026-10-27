@@ -77,6 +77,10 @@ static void fail(const char *s) { fprintf(stderr,"FAIL %s, Windows error %lu\n",
 static NTSTATUS WINAPI bootstrap_relocation_protect(HANDLE process,void **address,SIZE_T *size,
                                                    ULONG protection,ULONG *previous)
 {
+    /* Wine iterates all sections, including BSS with no raw file bytes.
+     * Native NtProtectVirtualMemory rejects an empty range. It needs no
+     * protection change, in either the unprotect or restore pass. */
+    if(!*size){*previous=0;return STATUS_SUCCESS;}
     NTSTATUS status=NtProtectVirtualMemory(process,address,size,protection,previous);
     if(status<0){SetLastError(RtlNtStatusToDosError(status));fail("bootstrap relocation protection");}
     return status;
