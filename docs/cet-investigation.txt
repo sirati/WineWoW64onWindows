@@ -38,8 +38,8 @@ reported wow64=1, CET flags 0x100 and SSP=0 on the same Windows build.
 Bit 0, EnableUserShadowStack, is clear. Thus this native WoW64 route did
 not enable requested CET and does not solve the runtime's CET requirement.
 POLICY_EXIT code=0 is the child's exit, not the launcher's final status;
-the launcher returns 83 when requested CET is absent. The original agent
-summary confused those values. The raw policy report is authoritative.
+the launcher's source returns 83 when requested CET is absent. The stored
+report records the child status and queried policy flags.
 
 Raw evidence directories in the local workspace:
 2026-10-27-wine-cet-context-luna/evidence/continuation-matrix/
