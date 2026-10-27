@@ -251,44 +251,33 @@ static void WINAPI notify_stack_protection(void *address,SIZE_T size,ULONG prote
 }
 static struct guest_module *load_image(const char *path,const char *name)
 {
-    FILE *f=fopen(path,"rb"); long len; BYTE *raw,*base;
-    IMAGE_DOS_HEADER *dos; IMAGE_NT_HEADERS32 *nt; IMAGE_SECTION_HEADER *sec;
+    HANDLE file=CreateFileA(path,GENERIC_READ|GENERIC_EXECUTE,
+                            FILE_SHARE_READ|FILE_SHARE_DELETE,NULL,OPEN_EXISTING,0,NULL),section=NULL;
+    if(file==INVALID_HANDLE_VALUE)fail(path);
+    NTSTATUS status=NtCreateSection(&section,SECTION_MAP_READ|SECTION_MAP_WRITE|SECTION_MAP_EXECUTE,
+                                    NULL,NULL,PAGE_EXECUTE_READ,SEC_IMAGE,file);
+    CloseHandle(file);
+    if(status<0)fail("create bootstrap image section");
+    /* A NULL address lets Windows use this file's canonical image mapping.
+     * Windows has already relocated the image to the mapped header ImageBase.
+     * An explicit preferred address can instead return another view of those
+     * same relocated bytes, requiring a second relocation of executable pages. */
+    void *image=NULL;SIZE_T size=0;
+    status=NtMapViewOfSection(section,GetCurrentProcess(),&image,0,0,NULL,&size,ViewUnmap,0,PAGE_READONLY);
+    NtClose(section);
+    if(status<0)fail("map bootstrap image");
+    BYTE *base=image;
+    if(size<sizeof(IMAGE_NT_HEADERS32)||size>UINT32_MAX||(uintptr_t)base>UINT32_MAX-size)
+        fail("bootstrap image address range");
+    IMAGE_DOS_HEADER *dos=image;
+    if(dos->e_magic!=IMAGE_DOS_SIGNATURE||dos->e_lfanew<0||
+       (SIZE_T)dos->e_lfanew>size-sizeof(IMAGE_NT_HEADERS32))fail("bootstrap DOS header");
+    IMAGE_NT_HEADERS32 *nt=(void *)(base+dos->e_lfanew);
+    if(nt->Signature!=IMAGE_NT_SIGNATURE||nt->FileHeader.Machine!=IMAGE_FILE_MACHINE_I386||
+       nt->OptionalHeader.Magic!=IMAGE_NT_OPTIONAL_HDR32_MAGIC)fail("expected i386 PE32 image");
+    if(nmods>=128||nt->OptionalHeader.SizeOfImage>64*1024*1024)fail("image limit");
+    if((uintptr_t)base!=nt->OptionalHeader.ImageBase)fail("bootstrap canonical image address unavailable");
     struct guest_module *m;
-    if(!f) fail(path);
-    fseek(f,0,SEEK_END); len=ftell(f); rewind(f);
-    raw=malloc(len); if(!raw||fread(raw,1,len,f)!=(size_t)len) fail("read guest image"); fclose(f);
-    dos=(void *)raw;
-    if(len<64||dos->e_magic!=IMAGE_DOS_SIGNATURE||dos->e_lfanew<0||dos->e_lfanew+sizeof(*nt)>(size_t)len) fail("DOS header");
-    nt=(void *)(raw+dos->e_lfanew);
-    if(nt->Signature!=IMAGE_NT_SIGNATURE||nt->FileHeader.Machine!=IMAGE_FILE_MACHINE_I386||nt->OptionalHeader.Magic!=IMAGE_NT_OPTIONAL_HDR32_MAGIC) fail("expected i386 PE32 image");
-    if(nmods>=128||nt->OptionalHeader.SizeOfImage>64*1024*1024) fail("image limit");
-    base=low_alloc(nt->OptionalHeader.ImageBase,nt->OptionalHeader.SizeOfImage,PAGE_READWRITE);
-    if(!base) fail("allocate guest image");
-    memcpy(base,raw,nt->OptionalHeader.SizeOfHeaders);
-    sec=IMAGE_FIRST_SECTION(nt);
-    for(unsigned i=0;i<nt->FileHeader.NumberOfSections;i++)
-    {
-        if(sec[i].PointerToRawData+sec[i].SizeOfRawData>(size_t)len||sec[i].VirtualAddress+sec[i].SizeOfRawData>nt->OptionalHeader.SizeOfImage) fail("section bounds");
-        memcpy(base+sec[i].VirtualAddress,raw+sec[i].PointerToRawData,sec[i].SizeOfRawData);
-    }
-    intptr_t delta=(intptr_t)base-nt->OptionalHeader.ImageBase;
-    IMAGE_DATA_DIRECTORY rel=nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
-    if(delta)
-    {
-        if(!rel.Size) fail("missing guest relocations");
-        BYTE *pos=base+rel.VirtualAddress,*end=pos+rel.Size;
-        while(pos<end)
-        {
-            IMAGE_BASE_RELOCATION *b=(void *)pos;
-            if(b->SizeOfBlock<8||pos+b->SizeOfBlock>end) fail("relocation bounds");
-            WORD *r=(void *)(b+1);
-            for(unsigned i=0;i<(b->SizeOfBlock-8)/2;i++)
-                if((r[i]>>12)==IMAGE_REL_BASED_HIGHLOW) *(DWORD *)(base+b->VirtualAddress+(r[i]&4095))+=(DWORD)delta;
-                else if(r[i]>>12) fail("unsupported relocation");
-            pos+=b->SizeOfBlock;
-        }
-    }
-    free(raw);
     m=&mods[nmods];size_t name_len=strlen(name);if(name_len>=sizeof(mod_names[nmods]))name_len=sizeof(mod_names[nmods])-1;
     memcpy(mod_names[nmods],name,name_len);mod_names[nmods][name_len]=0;
     m->name=mod_names[nmods++];m->base=base;
@@ -337,32 +326,19 @@ static struct guest_module *find_module(const char *name)
     for(unsigned i=0;i<nmods;i++) if(!_stricmp(mods[i].name,name))return &mods[i];
     return NULL;
 }
-static void protect_bootstrap_image(struct guest_module *module)
+/* Bootstrap imports are the only pre-loader fixups. Match Wine's loader by
+ * restoring the IAT's original permissions after binding it. Only data pages
+ * may be written here, so this works under dynamic-code prohibition. */
+static void write_bootstrap_import(DWORD *slot,DWORD target)
 {
-    SIZE_T size=module->nt->OptionalHeader.SizeOfImage,pages=(size+4095)/4096;
-    BYTE *access=calloc(pages,1);DWORD old;
-    if(!access)fail("bootstrap protection map");
-    for(SIZE_T i=0;i<(module->nt->OptionalHeader.SizeOfHeaders+4095)/4096;i++)access[i]=1;
-    IMAGE_SECTION_HEADER *sections=IMAGE_FIRST_SECTION(module->nt);
-    for(unsigned i=0;i<module->nt->FileHeader.NumberOfSections;i++)
-    {
-        IMAGE_SECTION_HEADER *s=&sections[i];SIZE_T length=max(s->Misc.VirtualSize,s->SizeOfRawData);
-        SIZE_T end=((SIZE_T)s->VirtualAddress+length+4095)/4096;
-        if(end>pages)fail("bootstrap protection section bounds");
-        BYTE bits=((s->Characteristics&IMAGE_SCN_MEM_READ)?1:0)|
-                  ((s->Characteristics&IMAGE_SCN_MEM_WRITE)?2:0)|
-                  ((s->Characteristics&IMAGE_SCN_MEM_EXECUTE)?4:0);
-        for(SIZE_T page=s->VirtualAddress/4096;page<end;page++)access[page]|=bits;
-    }
-    static const DWORD protections[]={PAGE_NOACCESS,PAGE_READONLY,PAGE_READWRITE,PAGE_READWRITE,
-                                     PAGE_EXECUTE,PAGE_EXECUTE_READ,PAGE_EXECUTE_READWRITE,PAGE_EXECUTE_READWRITE};
-    for(SIZE_T first=0;first<pages;)
-    {
-        SIZE_T end=first+1;while(end<pages&&access[end]==access[first])end++;
-        if(!VirtualProtect(module->base+first*4096,(end-first)*4096,protections[access[first]],&old))fail("bootstrap section protection");
-        first=end;
-    }
-    free(access);FlushInstructionCache(GetCurrentProcess(),module->base,size);
+    MEMORY_BASIC_INFORMATION info;DWORD old;
+    if(!VirtualQuery(slot,&info,sizeof(info)))fail("query bootstrap IAT");
+    if(info.Protect&(PAGE_EXECUTE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE|PAGE_EXECUTE_WRITECOPY))
+        fail("bootstrap IAT shares executable memory");
+    if(info.Protect&(PAGE_READWRITE|PAGE_WRITECOPY)){*slot=target;return;}
+    if(!VirtualProtect(slot,sizeof(*slot),PAGE_READWRITE,&old))fail("unprotect bootstrap IAT");
+    *slot=target;
+    if(!VirtualProtect(slot,sizeof(*slot),old,&old))fail("restore bootstrap IAT protection");
 }
 static void resolve_imports(struct guest_module *m)
 {
@@ -382,7 +358,7 @@ static void resolve_imports(struct guest_module *m)
             const char *fn=(*src&IMAGE_ORDINAL_FLAG32)?0:(char *)m->base+*src+2;
             void *target=guest_export(dep,fn,(WORD)*src);
             if(!target) { fprintf(stderr,"UNSUPPORTED %s!%s\n",name,fn?fn:"ordinal");fail("guest symbol"); }
-            *dst=(DWORD)(uintptr_t)target;
+            write_bootstrap_import(dst,(DWORD)(uintptr_t)target);
         }
     }
     m->imports_done=TRUE;
@@ -987,7 +963,6 @@ int main(int argc,char **argv)
       *(uint64_t *)guest_export(bk,"bridge_handle",0)=(uint64_t)(uintptr_t)table;
       *(DWORD *)guest_export(bk,"bridge_gate",0)=(DWORD)(uintptr_t)&gate[1];
       *(DWORD *)guest_export(bk,"host_exit_gate",0)=(DWORD)(uintptr_t)&gate[2]; }
-    for(unsigned i=0;i<nmods;i++)protect_bootstrap_image(&mods[i]);
     __wine_unix_call_dispatcher=(void **)(uintptr_t)probe_library_dispatch;
     if(wine_components)
     {

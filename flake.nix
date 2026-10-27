@@ -6,6 +6,9 @@
     pkgs = import nixpkgs { inherit system; };
     runtime = pkgs.callPackage ./nix/runtime.nix { project = self; };
   in {
+    devShells.${system}.default = pkgs.mkShell {
+      packages = [ pkgs.python3 ];
+    };
     packages.${system} = {
       default = runtime;
       corpus = pkgs.callPackage ./nix/corpus.nix { };

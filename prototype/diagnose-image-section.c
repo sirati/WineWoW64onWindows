@@ -44,18 +44,30 @@ int main(int argc,char **argv)
     if(file==INVALID_HANDLE_VALUE)return 8;
     LONG status=create(&section,SECTION_MAP_READ|SECTION_MAP_EXECUTE,NULL,NULL,PAGE_EXECUTE_READ,SEC_IMAGE,file);
     CloseHandle(file);if(status<0)return 9;
-    for(unsigned i=0;i<2;i++)
+    unsigned failures=0;
+    const ULONG_PTR requests[]={0,0,nt->OptionalHeader.ImageBase,0x21000000};
+    for(unsigned i=0;i<sizeof(requests)/sizeof(requests[0]);i++)
     {
-        void *base=(void *)(ULONG_PTR)(i?0x21000000:nt->OptionalHeader.ImageBase);SIZE_T size=0;
-        status=map(section,GetCurrentProcess(),&base,0,0,NULL,&size,2,0,PAGE_READONLY);
-        if(status<0){printf("IMAGE_MAP status=%08lx\n",status);return 10;}
+        void *base=(void *)requests[i];SIZE_T size=0;ULONG_PTR zero_bits=i==1?32:0;
+        status=map(section,GetCurrentProcess(),&base,zero_bits,0,NULL,&size,2,0,PAGE_READONLY);
+        if(status<0)
+        {
+            printf("IMAGE_MAP requested=%p zero_bits=%llu status=%08lx\n",(void *)requests[i],(unsigned long long)zero_bits,status);
+            /* ZeroBits=32 is an optional probe, rejected by native Windows. */
+            if(!zero_bits||(ULONG)status!=0xc000000d)failures++;
+            continue;
+        }
+        IMAGE_NT_HEADERS32 *mapped_nt=(void *)((BYTE *)base+((IMAGE_DOS_HEADER *)base)->e_lfanew);
+        DWORD mapped_preferred=mapped_nt->OptionalHeader.ImageBase;
         DWORD mapped=*(DWORD *)((BYTE *)base+target);
         DWORD relocated=original+(DWORD)(ULONG_PTR)base-nt->OptionalHeader.ImageBase;
-        printf("IMAGE_MAP base=%p status=%08lx preferred=%08lx rva=%08lx raw=%08lx mapped=%08lx relocated=%08lx kind=%s\n",
-               base,status,nt->OptionalHeader.ImageBase,target,original,mapped,relocated,
-               mapped==relocated?"relocated":mapped==original?"raw":"unexpected");
-        if(mapped!=original&&mapped!=relocated)return 11;
+        DWORD canonical=original+mapped_preferred-nt->OptionalHeader.ImageBase;
+        MEMORY_BASIC_INFORMATION info={0};VirtualQuery((BYTE *)base+target,&info,sizeof(info));
+        printf("IMAGE_MAP requested=%p zero_bits=%llu base=%p status=%08lx raw_header=%08lx mapped_header=%08lx rva=%08lx raw=%08lx mapped=%08lx relocated=%08lx canonical=%08lx type=%08lx protection=%08lx kind=%s\n",
+               (void *)requests[i],(unsigned long long)zero_bits,base,status,nt->OptionalHeader.ImageBase,mapped_preferred,target,original,mapped,relocated,canonical,info.Type,info.Protect,
+               mapped==relocated?"relocated":mapped==canonical?"canonical":mapped==original?"raw":"unexpected");
+        if(mapped!=original&&mapped!=relocated&&mapped!=canonical)failures++;
         unmap(GetCurrentProcess(),base);
     }
-    CloseHandle(section);free(raw);return 0;
+    CloseHandle(section);free(raw);return failures?11:0;
 }
