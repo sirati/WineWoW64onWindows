@@ -11,7 +11,7 @@ static DWORD WINAPI target(void *argument)
 }
 static DWORD WINAPI query(void *argument)
 {
-    struct job *job=argument;CONTEXT context={0};context.ContextFlags=CONTEXT_FULL;
+    struct job *job=argument;CONTEXT context;context.ContextFlags=CONTEXT_FULL;
     REQUIRE(GetThreadContext(job->target,&context)&&context.SegCs==0x23&&context.Eip&&context.Esp,10);
     InterlockedIncrement(&successful_queries);job->querying=1;
     /* The target stays suspended until it is terminated. A valid handle
