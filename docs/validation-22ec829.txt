@@ -1,0 +1,54 @@
+Nix Windows VM regression, 2026-10-27
+
+Frozen source: 22ec829c9ae8c6a389919e156dcf5f037835c897
+Separate worktree: 2026-10-27-wine-thread-refcount-luna
+Tester: Luna 6; no production edits. Windows 11 x64, build 26100.
+Windows verified the 88-file candidate before execution.
+Host SHA256: 786E7D019882924BA542AC185FECB6DCE9BD2A3EABD4CC93BBB6197F36A7653E
+Nix tests: /nix/store/4x8a9wxyn6r37zzd8hg1qpz7k2j1j68l-wine-wow64-windows-11.0-tests
+This store path identifies the tested output and is not a build input.
+
+| Check | Verified result |
+|---|---|
+| Cross suite | 29 cases, zero unexpected failures |
+| C++/SEH/lifecycle | Seven required cases passed; one known optional nested-return failure |
+| Unmodified applications | 16 checks, zero required failures; both archive extraction hashes match |
+| Focused runtime | 83 runs passed with numeric exit zero and no timeout |
+| Main EXE canonical collision | Five debugger runs passed with successful Wine relocation |
+| New context-exit stress | Native control passed; initial named Wine rows are invalid |
+| New spin-mode issuer-exit stress | Initial named rows are invalid |
+
+The focused runtime matrix has five Wine runs of each of fourteen fixtures:
+thread_create32, thread_context32, callback_worker32, apc32, io_notify32,
+socket32, socket_extensions32, xstate32, xstate_components32, stack_growth32,
+stack_overflow32, fiber32, fiber_overflow32 and mitigation32. Thirteen native
+controls also pass; callback_worker32 requires the example Wine bridge.
+The primary checked every row for its exact fixture marker, numeric exit,
+timeout and Wine application-loading marker. Extended vector coverage now
+includes AVX, opmask, ZMM-high and high-ZMM APC/exception-context paths.
+
+Two initial stress matrices in stage1/raw.json lost command-line arguments
+and launched the default custom hello32 guest. Their thirty named context
+runs and twenty named spin runs are excluded. The native spin row actually
+ran wait-race mode and is also excluded from spin coverage. The native
+thread_exit_context32 control is valid. Five rows named ntdll-context in
+stage2/raw.json reserved the custom guest/ntdll.dll, not the stock Wine
+bootstrap; they do not establish bootstrap relocation coverage. Separate
+earlier collision controls are recorded in loader-relocation-regression.txt.
+
+The full regression remains valid independently of those rejected rows.
+Required exception tests preserve the optional C++ diagnostic failure as
+0xc0000005. The unmodified corpus covers 7-Zip, Lua, SQLite, BusyBox and 7zr;
+SQLite's Wine-created database also reopens under native Windows.
+
+Raw evidence is outside Git under the frozen worktree:
+evidence/vm-test-thread-refcount-results/raw/
+out-results/cross-report.json, exception-report.json,
+runtime-integration-report.json and unmodified/report.json contain the
+accepted suite results. stage1/raw.json and stage2/raw.json retain the
+initial harness output for audit rather than silently replacing it.
+
+CET, termination while holding an adapter/native CRT lock, and the upstream
+C++ nested-return diagnostic remain open. See REMAINING-WORK.txt and the
+separate mitigation and loader reports. This corpus does not establish
+universal unmodified application compatibility.

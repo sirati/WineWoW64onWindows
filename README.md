@@ -55,13 +55,15 @@ are available through `nix build .#image-mapping-diagnostic` and
 `nix build .#continuation-diagnostic`. `nix develop` supplies Python for source
 and evidence helper scripts.
 
-This is still a port in development. Nix candidate `d34a200` passed the required
+This is still a port in development. Nix candidate `22ec829` passed the required
 headless application, socket, APC, IOCP, callback, thread, context, XSTATE,
 stack and fiber controls. Original Wine version and debug routines also pass.
 See [the compatibility report](prototype/README.txt) and
 [remaining work](prototype/REMAINING-WORK.txt) for the tested scope and limits.
 The image-backed bootstrap also passes ten runtime cases and six unmodified
 application commands with dynamic-code prohibition enabled. See
-[the frozen candidate report](docs/validation-d34a200.txt) for
-hashes and acceptance results. CET remains open. Universal unmodified
+[the current regression report](docs/validation-22ec829.txt) for hashes,
+accepted results and excluded harness runs. Earlier dynamic-code acceptance
+is recorded in [the image-bootstrap report](docs/validation-d34a200.txt).
+CET and forced termination during adapter calls remain open. Universal unmodified
 application compatibility is not established.

@@ -72,6 +72,7 @@ in stdenv.mkDerivation {
     cp prototype/*.ps1 $tests/prototype/
     cp prototype/{README,RUNTIME-WORK,REMAINING-WORK}.txt $out/docs/
     cp docs/validation-d34a200.txt $out/docs/
+    cp docs/validation-22ec829.txt $out/docs/
     cp docs/cet-investigation.txt $out/docs/
     cp docs/loader-relocation-regression.txt $out/docs/
     cat > $out/docs/build-inputs.txt <<EOF
