@@ -1,0 +1,53 @@
+Main EXE canonical-address collision regression
+
+Wine LdrLoadDll maps the EXE with DONT_RESOLVE_DLL_REFERENCES. Wine's
+perform_relocations deliberately skips an EXE that is not the PEB main
+image. The embedding bootstrap selected that image only after LdrLoadDll
+returned, leaving its absolute addresses unchanged when a canonical image
+view could not map at its canonical address.
+
+The preserved intermittent thread_context32 crash occurred at its first
+CreateThread call, before the context test. The return address is app RVA
+0x1648. The instruction at RVA 0x1642 calls through an absolute IAT address.
+An unrelocated operand can read an unrelated address, including an invalid
+function pointer such as the observed 0x737469.
+
+Reserving only the EXE's raw preferred base is not a sufficient control:
+Windows can choose a new canonical address and relocate the image itself.
+The decisive control maps and retains the same SEC_IMAGE in the debugger,
+then reserves its canonical address in the child before Wine starts.
+
+Set WINE_TEST_OCCUPY_APPLICATION_CANONICAL_IMAGE=guest/thread_context32.exe
+and run debug-guest.exe wine-host.exe --wine-components
+guest/thread_context32.exe. The hello control uses guest/hello32.exe in
+both places. Application loading stays inside Wine.
+
+On Windows 11 build 26100, Luna tested two separate hash-verified bundles:
+
+Baseline e98e2f2ac525c9c0b8c8b2d3467edfe0f6fa8221 retains the old loader
+and adds only the diagnostic helper. Host SHA256:
+06094F596F5B3E1CFFA60E08873C460A995CA9C038850B8526741CFF6FEC4478
+All five context runs and all three hello runs exited c0000005. A context
+run mapped the EXE at 009c0000 while its call operand still referenced the
+canonical IAT at 00e56090.
+
+Fixed 4d1774126d6cc1da3fbca21b2735da46d16bc186 selects the PEB main
+image, then calls Wine's extracted original perform_relocations before
+import binding or loader callbacks. Host SHA256:
+D5D4DCD0DBD3E17C55CDF119F28B76FB89A00E498EE6AE359CDCE4F79CA0230F
+All five context runs and all three hello runs exited zero. Every stream
+contains WINE_RELOCATE_APPLICATION status=00000000, with a distinct mapped
+and canonical base. For example, canonical 00c60000 mapped at 00690000.
+
+The native host checks dynamic-code policy before a required executable
+relocation and fails explicitly with Windows error 1655 when prohibited.
+The later d7eaf54 adapter treats empty BSS protection ranges as no-ops in
+this guest relocator, matching the existing native bootstrap adapter.
+
+Raw evidence is retained under these local workspace directories:
+2026-10-27-wine-exe-canonical-baseline-luna/evidence/vm-test-baseline-results/
+2026-10-27-wine-safe-issuer-luna/evidence/vm-test-fixed-results/
+The combined debugger .log files are UTF-16. Their DEBUG_EXIT lines record
+the numeric process status. Separate --spin I/O runs in the latter bundle
+printed success but have blank numeric exit fields in their initial harness;
+they are not part of the eight-run loader comparison above.

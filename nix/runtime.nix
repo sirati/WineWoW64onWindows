@@ -73,6 +73,7 @@ in stdenv.mkDerivation {
     cp prototype/{README,RUNTIME-WORK,REMAINING-WORK}.txt $out/docs/
     cp docs/validation-d34a200.txt $out/docs/
     cp docs/cet-investigation.txt $out/docs/
+    cp docs/loader-relocation-regression.txt $out/docs/
     cat > $out/docs/build-inputs.txt <<EOF
     Wine release: 11.0
     Wine commit: db11d0fe6a169c457e23d007e20404643d067aa8
