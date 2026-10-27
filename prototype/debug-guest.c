@@ -5,6 +5,23 @@
 #include <windows.h>
 typedef LONG (WINAPI *create_section_t)(HANDLE *,DWORD,void *,LARGE_INTEGER *,ULONG,ULONG,HANDLE);
 typedef LONG (WINAPI *map_section_t)(HANDLE,HANDLE,void **,ULONG_PTR,SIZE_T,LARGE_INTEGER *,SIZE_T *,int,ULONG,ULONG);
+static BOOL reserve_application_image(HANDLE process,DWORD pid,const char *path)
+{
+    HANDLE file=CreateFileA(path,GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_DELETE,NULL,OPEN_EXISTING,0,NULL);
+    IMAGE_DOS_HEADER dos;IMAGE_NT_HEADERS32 nt;DWORD read=0;
+    if(file==INVALID_HANDLE_VALUE)return FALSE;
+    BOOL valid=ReadFile(file,&dos,sizeof(dos),&read,NULL)&&read==sizeof(dos)&&
+        dos.e_magic==IMAGE_DOS_SIGNATURE&&dos.e_lfanew>=0&&
+        SetFilePointer(file,dos.e_lfanew,NULL,FILE_BEGIN)!=INVALID_SET_FILE_POINTER&&
+        ReadFile(file,&nt,sizeof(nt),&read,NULL)&&read==sizeof(nt)&&
+        nt.Signature==IMAGE_NT_SIGNATURE&&nt.OptionalHeader.Magic==IMAGE_NT_OPTIONAL_HDR32_MAGIC;
+    CloseHandle(file);if(!valid)return FALSE;
+    void *preferred=(void *)(ULONG_PTR)nt.OptionalHeader.ImageBase;
+    void *reserved=VirtualAllocEx(process,preferred,0x10000,MEM_RESERVE,PAGE_NOACCESS);
+    fprintf(stderr,"DEBUG_APPLICATION_RESERVATION pid=%lu image=%s preferred=%p reserved=%p error=%lu\n",
+            pid,path,preferred,reserved,reserved?0:GetLastError());
+    return reserved==preferred;
+}
 /* Test helper: keep the file's canonical image view alive in the debugger,
  * and reserve that address in the child before the port maps its bootstrap. */
 static BOOL reserve_bootstrap_image(HANDLE process,DWORD pid,const char *path)
@@ -90,6 +107,9 @@ int main(void)
             if(file)CloseHandle(file);
             const char *bootstrap=getenv("WINE_TEST_OCCUPY_BOOTSTRAP_IMAGE");
             if(bootstrap&&strstr(path,"wine-host.exe")&&!reserve_bootstrap_image(event.u.CreateProcessInfo.hProcess,event.dwProcessId,bootstrap))
+                TerminateProcess(event.u.CreateProcessInfo.hProcess,82);
+            const char *application=getenv("WINE_TEST_OCCUPY_APPLICATION_IMAGE");
+            if(application&&strstr(path,"wine-host.exe")&&!reserve_application_image(event.u.CreateProcessInfo.hProcess,event.dwProcessId,application))
                 TerminateProcess(event.u.CreateProcessInfo.hProcess,82);
             if(getenv("WINE_TEST_OCCUPY_GATE_BASE"))
             {
