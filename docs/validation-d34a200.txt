@@ -23,12 +23,24 @@ These store paths identify the tested outputs; they are not build inputs.
 | Unmodified applications | 16 checks, zero required failures; archive hashes match, SQLite DB reopens in native Windows |
 | Original Wine debug routines | Main/worker fixture passed without an example native bridge |
 | ASLR and CFG launch policies | Passed; this does not establish guest CFG instrumentation/enforcement |
-| Dynamic-code prohibition | Child dynamic=1; bootstrap, Wine loader and hello32 completed with guest exit 0 |
+| Dynamic-code prohibition | Child dynamic=1; hello32, ten focused runtime cases and six unmodified-application commands all exited 0 |
 
 The bootstrap DLLs now use native SEC_IMAGE mappings. Windows chooses each
 canonical address and supplies relocations and page protections. Bootstrap
 IAT binding and runtime setup change data only. Application and dependency
 loading remains inside Wine. No native WoW64 application loader is substituted.
+
+Dynamic-code policy extension
+
+A fresh clone verified the same 86 candidate files and host hash. Ten policy
+checks passed with dynamic=1: thread contexts, APC, IOCP/I/O notifications,
+native-worker callbacks, AVX, fiber overflow/reset, memory protections, C++
+unwinding, hardware SEH and loader lifecycle. Six application commands also
+passed with the example bridge unset: Lua protected error, 7za create/test/
+extract, and SQLite create/reopen. Both extracted file hashes matched.
+The same worktree retains exact commands, policy flags and artifact hashes
+under evidence/dynamic-policy-acceptance. This extends policy coverage only;
+the full normal regression was not repeated unnecessarily.
 
 Current limits
 
@@ -52,3 +64,11 @@ vm-results/candidate-verification.txt and vm-results/results/. The result JSON
 files contain command lines, native controls, exits, timeouts and output.
 bootstrap-smoke includes queried policy flags and mapped DLL addresses.
 continuation-revised contains the independent NtContinue traces.
+
+Later documentation and test-helper commits do not change the implementation.
+Nix rebuilds can embed their changed output-store path in .debug_info and
+therefore produce a different PE checksum and whole-file hash. The 342d360
+rebuild was compared with this frozen candidate: changed PE sections were
+limited to .debug_info. Executable and runtime data sections were unchanged.
+The hashes above identify the actual frozen VM inputs, not arbitrary later
+documentation rebuilds.

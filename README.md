@@ -60,7 +60,8 @@ headless application, socket, APC, IOCP, callback, thread, context, XSTATE,
 stack and fiber controls. Original Wine version and debug routines also pass.
 See [the compatibility report](prototype/README.txt) and
 [remaining work](prototype/REMAINING-WORK.txt) for the tested scope and limits.
-The image-backed bootstrap also runs a guest with dynamic-code prohibition
-enabled. See [the frozen candidate report](docs/validation-d34a200.txt) for
+The image-backed bootstrap also passes ten runtime cases and six unmodified
+application commands with dynamic-code prohibition enabled. See
+[the frozen candidate report](docs/validation-d34a200.txt) for
 hashes and acceptance results. CET remains open. Universal unmodified
 application compatibility is not established.

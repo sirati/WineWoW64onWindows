@@ -171,3 +171,10 @@ native stack, as the port does. Windows 11 build 26100 reports CS=0x33 at
 the trap, so this did not enter compatibility mode. A successful trap at
 the expected IP alone would have been insufficient evidence. This diagnostic
 has no runtime dependency and does not replace Wine's transition code.
+
+Focused dynamic-code acceptance on d34a200 also passes ten runtime fixtures
+and six unmodified-application commands, all with dynamic=1. Coverage includes
+C++/SEH, thread contexts, APC/IOCP, native-worker callbacks, AVX, fiber overflow,
+protection faults and lifecycle. Bridge-unset Lua, 7za and SQLite pass, with
+matching archive extraction hashes. Raw commands, flags and output remain in
+the test worktree's evidence/dynamic-policy-acceptance directory.
