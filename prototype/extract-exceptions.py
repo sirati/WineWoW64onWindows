@@ -13,8 +13,8 @@ def fn(source,name):
     end=source.index('\n}',pos)+2
     return source[start:end]
 loader=(root/'ntdll/loader.c').read_text()
-Path('prototype/out/wine-bootstrap-relocations.inc').write_text('\n\n'.join(
-    fn(loader,n) for n in ['LdrProcessRelocationBlock','perform_relocations'])+'\n')
+relocator=re.search(r'^IMAGE_BASE_RELOCATION \* WINAPI LdrProcessRelocationBlock\(.*?^\}',loader,re.M|re.S).group()
+Path('prototype/out/wine-bootstrap-relocations.inc').write_text(relocator+'\n\n'+fn(loader,'perform_relocations')+'\n')
 parts=[fn(sys,n) for n in ['exception_record_32to64','exception_record_64to32','get_context_return_value','call_user_exception_dispatcher','wow64_NtContinueEx','wow64_NtContinue','wow64_NtRaiseException','Wow64PassExceptionToGuest','Wow64ApcRoutine']]
 start=sys.index('/* based on RtlRaiseException:')
 end=sys.index('\n#endif',sys.index('\n#else',start))+len('\n#endif')
