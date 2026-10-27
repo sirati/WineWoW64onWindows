@@ -1,5 +1,7 @@
 /* Native Windows debugger for diagnosing our own host's guest exceptions. */
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <windows.h>
 int main(void)
 {
@@ -50,6 +52,14 @@ int main(void)
             if(file)GetFinalPathNameByHandleA(file,path,sizeof(path),0);
             fprintf(stderr,"DEBUG_IMAGE pid=%lu base=%p path=%s\n",event.dwProcessId,event.u.CreateProcessInfo.lpBaseOfImage,path);
             if(file)CloseHandle(file);
+            if(getenv("WINE_TEST_OCCUPY_GATE_BASE"))
+            {
+                void *reservation=VirtualAllocEx(event.u.CreateProcessInfo.hProcess,(void *)0x20000000,
+                                                 0x10000,MEM_RESERVE,PAGE_NOACCESS);
+                fprintf(stderr,"DEBUG_GATE_RESERVATION pid=%lu base=%p error=%lu\n",
+                        event.dwProcessId,reservation,reservation?0:GetLastError());
+                if(!reservation)TerminateProcess(event.u.CreateProcessInfo.hProcess,82);
+            }
         }
         if(event.dwDebugEventCode==LOAD_DLL_DEBUG_EVENT&&event.u.LoadDll.hFile)CloseHandle(event.u.LoadDll.hFile);
         if(event.dwDebugEventCode==EXIT_PROCESS_DEBUG_EVENT)

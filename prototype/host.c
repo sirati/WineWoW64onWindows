@@ -436,6 +436,7 @@ static struct far_thunk *map_transition_gates(WORD cs)
     }
     NtClose(section);
     if(status<0)fail("map transition image below 4 GiB");
+    if((uintptr_t)base>UINT32_MAX-size)fail("transition image address range");
     struct guest_module image={.base=base};
     image.nt=(void *)((BYTE *)base+((IMAGE_DOS_HEADER *)base)->e_lfanew);
     struct far_thunk *entries=guest_export(&image,"probe_gate_entries",0);
