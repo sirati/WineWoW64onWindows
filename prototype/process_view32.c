@@ -41,6 +41,9 @@ void WINAPI app_entry(void)
         ExitProcess(78);
     void *allocation=VirtualAlloc(0,65536,MEM_RESERVE|MEM_COMMIT|MEM_TOP_DOWN,PAGE_READWRITE);
     if(!allocation||(uintptr_t)allocation+65535>highest)ExitProcess(79);
+#ifdef TEST_LARGE_ADDRESS_AWARE
+    if((uintptr_t)allocation<0x80000000)ExitProcess(81);
+#endif
     if(!VirtualFree(allocation,0,MEM_RELEASE)||!CloseHandle(process))ExitProcess(80);
 #ifdef TEST_LARGE_ADDRESS_AWARE
     MESSAGE("process_view_laa32: guest PEB, WoW64 identity and 4 GiB address range passed\r\n");
