@@ -8,6 +8,8 @@ static open_file_fn open_file;
 static DWORD WINAPI check_faults(void *unused)
 {
     (void)unused;
+    WCHAR *inaccessible=VirtualAlloc(NULL,4096,MEM_RESERVE|MEM_COMMIT,PAGE_NOACCESS);
+    if(!inaccessible)return 80;
     for(unsigned i=0;i<32;i++)
     {
         /* Wine's GROUP_AFFINITY32 conversion reads this pointer itself. */
@@ -15,7 +17,9 @@ static DWORD WINAPI check_faults(void *unused)
         if(status!=(LONG)0xc0000005u){message_hex(status);return 81;}
         /* The Windows path adapter allocates temporary conversion storage
          * before reading the invalid guest string. Check recovery repeatedly. */
-        UNICODE_STRING name={.Length=2,.MaximumLength=2,.Buffer=(WCHAR *)1};
+        /* An aligned PAGE_NOACCESS allocation isolates access validation
+         * from Windows' separate string-alignment checks. */
+        UNICODE_STRING name={.Length=2,.MaximumLength=2,.Buffer=inaccessible};
         OBJECT_ATTRIBUTES attributes={.Length=sizeof(attributes),.ObjectName=&name};
         IO_STATUS_BLOCK io;HANDLE file=NULL;
         status=open_file(&file,GENERIC_READ,&attributes,&io,FILE_SHARE_READ,0);
@@ -24,6 +28,7 @@ static DWORD WINAPI check_faults(void *unused)
         if(!QueryPerformanceCounter(&counter)||GetThreadPriority(GetCurrentThread())==THREAD_PRIORITY_ERROR_RETURN)
             return 83;
     }
+    if(!VirtualFree(inaccessible,0,MEM_RELEASE))return 84;
     return 0;
 }
 void WINAPI app_entry(void)

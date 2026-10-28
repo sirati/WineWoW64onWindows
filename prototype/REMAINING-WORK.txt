@@ -12,6 +12,12 @@ failure classification. The original upstream fiber suite now completes with
 only its excluded subprocess failures. Static TLS and the shared-clock-page
 query also have verified fixes. Alignment-exception dispatch and the remaining
 memory-accounting differences still require work.
+The protected-syscall wrapper is cross-built with a linked-unwind check but
+has not passed Windows validation. The remaining legacy pagefile assertion
+comes from Wine's Photoshop 4 workaround; a comparison fixture is ready for
+native and port execution. T3's parent-project binding currently prevents
+Luna's separate worktree from starting. See the upstream report for the exact
+failure; build checks do not replace those VM runs.
 
 | Area | Current result | Likely fix | Difficulty |
 |---|---|---|---|

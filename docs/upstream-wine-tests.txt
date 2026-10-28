@@ -57,7 +57,7 @@ Expanded suites and next fixes
 | Static TLS corrupts reserved dynamic slot 0 | Leave ThreadLocalStoragePointer empty until Wine allocates the module TLS array. Native plus ten Wine fixture runs pass; prior runtime exits 71. | Completed for tested paths |
 | Single-step exception has status 4000001e | Translate Windows WX86 statuses before Wine's dispatcher. The single-step assertion is gone; alignment exceptions remain separate. | Completed conversion |
 | Self process identity and address limits | Reserve the two boundary granules as well as selecting Wine's per-EXE limit. Native plus five Wine runs per mode pass, including an LAA allocation above 2 GiB. | Completed for tested paths |
-| GlobalMemoryStatus discrepancies | Refreshing process counters removes heap.c:3671 in three runs. The remaining in-scope assertion concerns Wine's legacy pagefile clamp at heap.c:3685. | Medium |
+| GlobalMemoryStatus discrepancies | Refreshing process counters removes heap.c:3671 in three runs. The remaining in-scope assertion at heap.c:3685 comes from Wine's unconditional Photoshop 4 installer workaround. Compare native legacy/extended values before choosing a compatibility change. | Low code cost; medium compatibility risk |
 | Virtual allocation zero-bits/size assertions | Native x86 and x64 return the same STATUS_CONFLICTING_ADDRESSES for ZeroBits=20 and size 0x10000 after zero-length decommit. The test permits these known Windows variations only outside Wine. | Native behavior confirmed; raw assertions retained |
 | Full fiber suite | Port completes 32,956 checks with only two subprocess-related failures. Native reports 4,115 private FLS-layout assertions. The focused survivor fixture crashes natively and passes in Wine; preserve that qualification. | Completed in-scope suite cases |
 | Full exception suite | Guest alignment faults recurse in native Windows ntdll while it constructs the exception frame, before the VEH is called. A later handler cannot fix this boundary. | High |
@@ -284,3 +284,48 @@ supported thunk definitions, preserving helpers, bodies and upstream line
 numbers. It does not introduce stubs or additional guest services. Static PE
 inspection verifies unwind ranges for the protected wrapper and the two
 focused fault paths. VM validation is still required.
+
+Next in-scope work
+
+1. Validate protected syscall recovery, then rerun the complete upstream
+   kernel32 thread suite to expose assertions after the former crash. The
+   focused thunk_fault32 fixture now uses aligned PAGE_NOACCESS storage for
+   its invalid filename. This separates access validation from the native
+   string-alignment policy. It retains repeated conversion failures followed
+   by valid calls on the main and worker threads.
+2. Diagnose the remaining legacy memory-status assertion. Wine's
+   kernel32/heap.c unconditionally lowers dwAvailPageFile when dwAvailPhys +
+   dwAvailPageFile reaches 2 GiB, to accommodate the Photoshop 4 installer.
+   This is separate from its intentionally todo-marked Sacrifice total-pagefile
+   limit of 0xfff7ffff. The memory_status32 fixture prints both APIs' physical
+   and pagefile values before and after the system-memory cache expires. It
+   compares available pagefile values with a 16 MiB allowance for activity
+   between queries. It has not run on Windows yet. Preserve the legacy
+   workaround until a candidate can be checked against native and old-binary
+   controls; no memory compatibility patch is included in this follow-up.
+3. Repair alignment-exception entry before the VEH, then return to CET.
+   Ordinary C++ and SEH already use Wine's handlers. Replacing those handlers
+   would not address the demonstrated native exception-entry failure.
+
+The Nix cross build now checks the linked AMD64 exception directory. It
+requires unwind ranges covering dispatch_nt, wow64_NtSetInformationThread
+and probe_NtOpenFile, plus the EHANDLER entry pointing at Wine's original
+wow64_syscall_handler. The check rejects a copy with its exception directory
+removed, a copy without EHANDLER, and a copy pointing at the wrong handler.
+The Nix runtime/tests build and flake evaluation pass. The host's .text is
+byte-identical to the frozen c2fb600 candidate; only a debug section differs.
+These are metadata/build checks, not Windows execution results.
+
+VM infrastructure blocker, 2026-10-28
+
+The original 127-file c2fb600 candidate archive passes independent host-side
+hash verification. Luna has not executed it. T3 rejects an attempt to select
+the registered WineWoW64onWindows project for local delegation:
+"A local task runs in this thread's project. Omit target.projectId, or pass
+target.environmentId to run it in that environment's project."
+The parent thread belongs to "No project", rooted at /home/sirati/.t3/scratch,
+which is not the Git checkout. Its earlier worktree provisioning failed there.
+Registering the real repository project and its pre-start input-copy script
+does not rebind this thread. No fallback agent or primary-run Windows test
+has been substituted. Protected-dispatch and follow-up VM validation remain
+pending until delegation can start in the repository project.
