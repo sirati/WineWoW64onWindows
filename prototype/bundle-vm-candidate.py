@@ -19,6 +19,8 @@ paths += [Path(name) for name in git('ls-files', '--', 'prototype/*.ps1').splitl
 upstream_manifest = Path('prototype/out/upstream-tests/manifest.json')
 if (root / upstream_manifest).is_file():
     paths.append(upstream_manifest)
+paths += sorted(p.relative_to(root) for p in (root / 'prototype/unmodified').rglob('*')
+                if p.is_file() and p.suffix.lower() in ('.exe', '.dll', '.txt', '.json'))
 assert paths and (root / 'prototype/out/wine-host.exe').is_file(), 'Copy the Nix tests output into prototype/out first.'
 manifest = {'commit': git('rev-parse', 'HEAD'), 'files': [
     {'path': p.relative_to('prototype').as_posix(),
