@@ -37,6 +37,7 @@ NTSTATUS (WINAPI *pBTCpuNotifyMapViewOfSection)(void *,void *,void *,SIZE_T,ULON
 void (WINAPI *pBTCpuNotifyMemoryProtect)(void *,SIZE_T,ULONG,BOOL,NTSTATUS);
 void (WINAPI *pBTCpuNotifyUnmapViewOfSection)(void *,BOOL,NTSTATUS);
 void (WINAPI *pBTCpuThreadTerm)(HANDLE,LONG);
+void (WINAPI *pBTCpuProcessTerm)(HANDLE,BOOL,NTSTATUS);
 /* Windows TLS holds a temporary-allocation frame per active dispatch. This
  * replaces Wine's Unix host storage, while retaining Wine's actual thunks. */
 struct temp_frame { void *blocks[256];unsigned count;UINT service; };
@@ -233,6 +234,15 @@ extern NTSTATUS WINAPI wow64_NtSuspendThread(UINT *),wow64_NtResumeThread(UINT *
 extern NTSTATUS WINAPI wow64_NtCreateThreadEx(UINT *),wow64_NtTerminateThread(UINT *);
 extern NTSTATUS WINAPI wow64_NtQueryObject(UINT *),wow64_NtSetInformationObject(UINT *);
 extern NTSTATUS WINAPI wow64_NtTestAlert(UINT *);
+extern NTSTATUS WINAPI wow64_NtOpenDirectoryObject(UINT *),wow64_NtCreateDirectoryObject(UINT *),wow64_NtQueryDirectoryObject(UINT *);
+extern NTSTATUS WINAPI wow64_NtCreateMutant(UINT *),wow64_NtOpenMutant(UINT *),wow64_NtReleaseMutant(UINT *),wow64_NtQueryMutant(UINT *);
+extern NTSTATUS WINAPI wow64_NtCreateSemaphore(UINT *),wow64_NtOpenSemaphore(UINT *),wow64_NtReleaseSemaphore(UINT *),wow64_NtQuerySemaphore(UINT *);
+extern NTSTATUS WINAPI wow64_NtOpenEvent(UINT *),wow64_NtQueryEvent(UINT *),wow64_NtPulseEvent(UINT *);
+extern NTSTATUS WINAPI wow64_NtCreateTimer(UINT *),wow64_NtOpenTimer(UINT *),wow64_NtSetTimer(UINT *),wow64_NtCancelTimer(UINT *),wow64_NtQueryTimer(UINT *);
+extern NTSTATUS WINAPI wow64_NtOpenProcess(UINT *),wow64_NtTerminateProcess(UINT *);
+extern NTSTATUS WINAPI wow64_NtReadVirtualMemory(UINT *),wow64_NtWriteVirtualMemory(UINT *),wow64_NtAllocateVirtualMemoryEx(UINT *);
+extern NTSTATUS WINAPI wow64_NtDeleteKey(UINT *),wow64_NtDeleteValueKey(UINT *);
+extern NTSTATUS WINAPI wow64_NtQuerySystemInformationEx(UINT *),wow64_NtConvertBetweenAuxiliaryCounterAndPerformanceCounter(UINT *);
 static NTSTATUS WINAPI dispatch_nt(UINT *a)
 {
     NTSTATUS status;
@@ -246,6 +256,34 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
     if(probe_trace&&n==0x27)diagnostic("SET_FILE handle=%x class=%u len=%u data=%08lx\n",a[0],a[4],a[3],*(DWORD *)(uintptr_t)a[2]);
     switch(n)
     {
+    case 0x0058: status=wow64_NtOpenDirectoryObject(a);break;
+    case 0x0077: status=wow64_NtCreateDirectoryObject(a);break;
+    case 0x00bc: status=wow64_NtQueryDirectoryObject(a);break;
+    case 0x007e: status=wow64_NtCreateMutant(a);break;
+    case 0x00b4: status=wow64_NtOpenMutant(a);break;
+    case 0x0020: status=wow64_NtReleaseMutant(a);break;
+    case 0x00c5: status=wow64_NtQueryMutant(a);break;
+    case 0x0083: status=wow64_NtCreateSemaphore(a);break;
+    case 0x00b6: status=wow64_NtOpenSemaphore(a);break;
+    case 0x000a: status=wow64_NtReleaseSemaphore(a);break;
+    case 0x00c7: status=wow64_NtQuerySemaphore(a);break;
+    case 0x0040: status=wow64_NtOpenEvent(a);break;
+    case 0x0056: status=wow64_NtQueryEvent(a);break;
+    case 0x00bb: status=wow64_NtPulseEvent(a);break;
+    case 0x0086: status=wow64_NtCreateTimer(a);break;
+    case 0x00b9: status=wow64_NtOpenTimer(a);break;
+    case 0x0062: status=wow64_NtSetTimer(a);break;
+    case 0x0061: status=wow64_NtCancelTimer(a);break;
+    case 0x0038: status=wow64_NtQueryTimer(a);break;
+    case 0x0026: status=wow64_NtOpenProcess(a);break;
+    case 0x002c: status=wow64_NtTerminateProcess(a);break;
+    case 0x003f: status=wow64_NtReadVirtualMemory(a);break;
+    case 0x003a: status=wow64_NtWriteVirtualMemory(a);break;
+    case 0x006b: status=wow64_NtAllocateVirtualMemoryEx(a);break;
+    case 0x008e: status=wow64_NtDeleteKey(a);break;
+    case 0x008f: status=wow64_NtDeleteValueKey(a);break;
+    case 0x00cb: status=wow64_NtQuerySystemInformationEx(a);break;
+    case 0x0076: status=wow64_NtConvertBetweenAuxiliaryCounterAndPerformanceCounter(a);break;
     case 0x00f8: status=wow64_NtTestAlert(a);break;
     case 0x0010: status=wow64_NtQueryObject(a);break;
     case 0x005c: status=wow64_NtSetInformationObject(a);break;
