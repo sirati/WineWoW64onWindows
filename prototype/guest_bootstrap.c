@@ -27,9 +27,12 @@ static NTSTATUS WINAPI main_image_protect(HANDLE process,void **address,SIZE_T *
 #undef page_size
 /* Return through the existing WoW64 gate, without rewriting Wine code. */
 __declspec(dllexport) DWORD ProbeHostExitGate;
+__declspec(dllexport) DWORD ProbeProcessExitThread;
 __declspec(dllexport) __attribute__((naked)) void WINAPI ProbeExitProcess(DWORD status)
 {
-    __asm__ volatile("movl 4(%esp),%eax\n\tjmp *_ProbeHostExitGate");
+    __asm__ volatile("movl %fs:0x24,%edx\n\txorl %eax,%eax\n\t"
+                     "lock cmpxchgl %edx,_ProbeProcessExitThread\n\t"
+                     "movl 4(%esp),%eax\n\tjmp *_ProbeHostExitGate");
 }
 BOOL WINAPI DllMain(HINSTANCE module,DWORD reason,void *reserved)
 { (void)module;(void)reason;(void)reserved;return TRUE; }
@@ -135,6 +138,12 @@ __declspec(dllexport) NTSTATUS WINAPI ProbeAttachImports(void)
 __declspec(dllexport) NTSTATUS WINAPI ProbeInitThread(void) { return ProbeAttachImports(); }
 __declspec(dllexport) NTSTATUS WINAPI ProbeInitialApcs(void) { return NtTestAlert(); }
 __declspec(dllexport) void WINAPI ProbeShutdownThread(void) { LdrShutdownThread(); }
+__declspec(dllexport) void WINAPI ProbeLockProcessExit(void)
+{
+    /* Same lock order as Wine RtlExitUserProcess, before stopping threads. */
+    RtlEnterCriticalSection(NtCurrentTeb()->Peb->LoaderLock);
+    RtlAcquirePebLock();
+}
 __declspec(dllexport) void WINAPI ProbeShutdownProcess(void)
 {
     LdrShutdownProcess();

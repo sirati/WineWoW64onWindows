@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string[]]$Programs=@('thunk_fault32','thread_affinity32','process_view32','process_view_laa32','thread_priority32','selector_identity32','activation_context32','tls_slots32','memory_status32','xstate32','xstate_components32','thread_context32','thread_exit_context32','thread_delayed_context32','thread_create32','apc32','io_notify32','callback32','callback_worker32','fiber32','fiber_thread_exit32','fiber_overflow32','stack_growth32','stack_overflow32','io_thread_exit32'),
+    [string[]]$Programs=@('thunk_fault32','thread_affinity32','process_view32','process_view_laa32','thread_priority32','selector_identity32','activation_context32','worker_process_exit32','tls_slots32','memory_status32','xstate32','xstate_components32','thread_context32','thread_exit_context32','thread_delayed_context32','thread_create32','apc32','io_notify32','callback32','callback_worker32','fiber32','fiber_thread_exit32','fiber_overflow32','stack_growth32','stack_overflow32','io_thread_exit32'),
     [int]$Repeats=5,
     [string]$ReportName='focused-suites',
     [int]$TimeoutSeconds=180

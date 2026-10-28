@@ -7,6 +7,7 @@ New-Item -ItemType Directory -Force results|Out-Null
 $rows=@()
 foreach($program in $Programs) {
     $guestArguments=if($ProgramArguments.ContainsKey($program)){[string]$ProgramArguments[$program]}else{''}
+    $expectedExit=if($program -eq 'worker_process_exit32'){37}else{0}
     $modes=if($program -in $WineOnlyPrograms){@($false)}else{@($true,$false)}
     foreach($native in $modes) {
         $count=if($native){1}else{$Repeats}
@@ -23,6 +24,7 @@ foreach($program in $Programs) {
                 'stack_growth32' { 'stack_growth32:.*guard pages.*successfully' }
                 'selector_identity32' { '(?m)^selector_identity32: current, duplicated and remote FS descriptors identify guest TEBs passed\r?$' }
                 'activation_context32' { '(?m)^activation_context32: verified manifest files, mapping and simple/dependent activation contexts passed\r?$' }
+                'worker_process_exit32' { '(?m)^worker_process_exit32: requested process exit 37\r?$' }
                 'thread_delayed_context32' { '(?m)^thread_delayed_context32: normal and forced exit retain valid context-handle errors after cleanup passed\r?$' }
                 'fs_recovery32' { 'fs_recovery32:.*recovered and retried' }
                 'stack_overflow32' { 'stack_overflow32:.*repeated growth passed' }
@@ -32,9 +34,20 @@ foreach($program in $Programs) {
             if($program -eq 'io_thread_exit32' -and $guestArguments -match '(^|\s)--spin($|\s)') {
                 $modeMatches=$out.Result -match 'spin-issuer mode:\s*00000001'
             }
+            if($program -eq 'worker_process_exit32') {
+                $modeMatches=$out.Result -match '(?m)^process_exit_library32: process attach\r?$' -and
+                             $out.Result -match '(?m)^process_exit_library32: process detach\r?$' -and
+                             $out.Result -notmatch 'unexpected.main.survived-process-exit'
+                if($guestArguments -match '(^|\s)--main($|\s)'){$modeMatches=$modeMatches -and $out.Result -match '(?m)^mode=main\r?$'}
+                elseif($guestArguments -match '(^|\s)--spin($|\s)'){$modeMatches=$modeMatches -and $out.Result -match '(?m)^mode=worker-spin\r?$' -and $out.Result -match 'phase=spinning-main'}
+                else{$modeMatches=$modeMatches -and $out.Result -match '(?m)^mode=worker\r?$'}
+                if(-not $native -and $guestArguments -notmatch '(^|\s)--main($|\s)') {
+                    $modeMatches=$modeMatches -and $out.Result -match '(?m)^GUEST_EXIT code=37 process_shutdown=1 HOST_RETURNED\r?$'
+                }
+            }
             $loaderMatches=$native -or ($out.Result -match 'WINE_LOAD_APPLICATION status=00000000' -and
-                                       $out.Result -match 'GUEST_EXIT code=0 .*HOST_RETURNED')
-            $rows+=[pscustomobject]@{probe=$program;native=$native;iteration=$i;pid=$p.Id;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;workingDirectory=$p.StartInfo.WorkingDirectory;exitCode=$p.ExitCode;timedOut=$timeout;passed=(-not $timeout -and $p.ExitCode -eq 0 -and $out.Result -match $pattern -and $modeMatches -and $loaderMatches);stdout=$out.Result;stderr=$err.Result}
+                                       $out.Result -match "GUEST_EXIT code=$expectedExit .*HOST_RETURNED")
+            $rows+=[pscustomobject]@{probe=$program;native=$native;iteration=$i;pid=$p.Id;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;workingDirectory=$p.StartInfo.WorkingDirectory;exitCode=$p.ExitCode;expectedExit=$expectedExit;timedOut=$timeout;passed=(-not $timeout -and $p.ExitCode -eq $expectedExit -and $out.Result -match $pattern -and $modeMatches -and $loaderMatches);stdout=$out.Result;stderr=$err.Result}
             $p.Dispose()
             if($StopOnFailure -and -not $rows[-1].passed){break}
         }

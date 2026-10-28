@@ -25,6 +25,7 @@
 #include "../wine-11.0-source/dlls/wow64cpu/cpu.c"
 extern void probe_resume32(void);
 extern DWORD WINAPI probe_enter32(I386_CONTEXT *);
+extern void probe_check_process_exit(I386_CONTEXT *,DWORD);
 static DWORD guest_teb_slot;
 static DWORD guest_cpu_slot;
 unsigned long probe_fs_repairs;
@@ -78,6 +79,7 @@ DWORD WINAPI probe_run32(I386_CONTEXT *ctx)
     TlsSetValue(guest_teb_slot,previous);
     TlsSetValue(guest_cpu_slot,previous_cpu);
     probe_thread_leave(previous_registered);
+    probe_check_process_exit(ctx,result);
     return result;
 }
 BOOL probe_recover_fs(EXCEPTION_POINTERS *p)

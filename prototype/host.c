@@ -66,6 +66,10 @@ DWORD WINAPI probe_callback32(DWORD function,const DWORD *args,UINT count)
     return probe_run32(&nested.ctx);
 }
 static void *wine_thread_attach,*wine_thread_detach,*wine_thread_start,*wine_initial_apcs;
+static DWORD *wine_process_exit_thread;
+static void *wine_process_exit_lock,*wine_process_shutdown;
+static I386_CONTEXT *main_guest_context;
+static LONG native_process_shutdown;
 static void *native_dispatch_table,*guest_unix_gate;
 extern NTSTATUS (WINAPI *pBTCpuNotifyMapViewOfSection)(void *,void *,void *,SIZE_T,ULONG,ULONG);
 extern void (WINAPI *pBTCpuNotifyMemoryProtect)(void *,SIZE_T,ULONG,BOOL,NTSTATUS);
@@ -705,6 +709,41 @@ static DWORD call_guest_stdcall(struct guest_module *m,void *proc,struct far_thu
     cpu.ctx.SegCs=cs32_sel;cpu.ctx.SegSs=ss32_sel;cpu.ctx.SegFs=guest_fs_sel;cpu.ctx.EFlags=0x202;
     DWORD result=run_bootstrap_stack(&cpu,stack,0x10000);stack_free(stack);return result;
 }
+void probe_check_process_exit(I386_CONTEXT *context,DWORD code)
+{
+    if(!wine_process_exit_thread||context==main_guest_context||
+       (DWORD)InterlockedCompareExchange((LONG *)wine_process_exit_thread,0,0)!=GetCurrentThreadId())return;
+    if(InterlockedCompareExchange(&native_process_shutdown,1,0))return;
+
+    /* A worker/nested ExitProcess cannot return through the main invocation.
+     * Keep Wine's lock, stop-other-threads, DLL-shutdown order on this thread.
+     * Allocate all transition storage before stopping native host threads. */
+    struct guest_cpu cpu={0};
+    struct guest_cpu *source=(void *)((BYTE *)context-4);
+    TEB32 *teb=(void *)source->guest_fs_base;
+    SIZE_T size=1024*1024;
+    BYTE *stack=stack_alloc(0x3b000000,size,size,teb);
+    if(!stack)fail("process shutdown stack");
+    cpu.guest_fs_base=(ULONG_PTR)teb;
+    cpu.ctx.ContextFlags=CONTEXT_I386_FULL;cpu.ctx.SegCs=cs32_sel;cpu.ctx.SegSs=ss32_sel;
+    cpu.ctx.SegFs=guest_fs_sel;cpu.ctx.EFlags=0x202;
+    teb->Tib.StackBase=(ULONG_PTR)(stack+size);teb->Tib.StackLimit=(ULONG_PTR)stack;
+    DWORD *sp=(void *)(stack+size-32);sp[0]=(ULONG_PTR)guest_return_gate;
+    cpu.ctx.Eip=(ULONG_PTR)wine_process_exit_lock;cpu.ctx.Esp=(ULONG_PTR)sp;
+    char output[96];int length=snprintf(output,sizeof(output),"GUEST_EXIT code=%lu process_shutdown=1 HOST_RETURNED\r\n",code);
+    probe_run32(&cpu.ctx);
+    /* Native loader/PEB locks also have to survive termination of host
+     * threads, just as they do in native Windows RtlExitUserProcess. */
+    ULONG_PTR cookie;
+    if(LdrLockLoaderLock(0,NULL,&cookie))ExitProcess(80);
+    RtlAcquirePebLock();
+    if(NtTerminateProcess(NULL,code))ExitProcess(80);
+    cpu.flags=0;cpu.ctx.Eip=(ULONG_PTR)wine_process_shutdown;cpu.ctx.Esp=(ULONG_PTR)sp;
+    sp[0]=(ULONG_PTR)guest_return_gate;
+    probe_run32(&cpu.ctx);
+    DWORD written;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),output,length,&written,NULL);
+    ExitProcess(code);
+}
 struct guest_thread_job {
     struct guest_cpu cpu;
     BYTE *stack,*teb;
@@ -1077,7 +1116,10 @@ int main(int argc,char **argv)
         DWORD *hook=guest_export(nt,"__wine_windows_exit_process",0);
         DWORD *exit_gate=guest_export(bootstrap,"ProbeHostExitGate",0);
         void *exit=guest_export(bootstrap,"ProbeExitProcess",0);
-        if(!hook||!exit_gate||!exit)fail("Wine process return hook");
+        wine_process_exit_thread=guest_export(bootstrap,"ProbeProcessExitThread",0);
+        wine_process_exit_lock=guest_export(bootstrap,"ProbeLockProcessExit",0);
+        wine_process_shutdown=guest_export(bootstrap,"ProbeShutdownProcess",0);
+        if(!hook||!exit_gate||!exit||!wine_process_exit_thread||!wine_process_exit_lock||!wine_process_shutdown)fail("Wine process return hook");
         *exit_gate=(DWORD)(ULONG_PTR)&gate[2];*hook=(DWORD)(ULONG_PTR)exit;
     }
     if(wine_components)probe_exception_init(guest_export(nt,"KiUserExceptionDispatcher",0),guest_export(nt,"KiRaiseUserExceptionDispatcher",0),ss);
@@ -1167,7 +1209,10 @@ int main(int argc,char **argv)
     cpu.flags=0;cpu.ctx.ContextFlags=CONTEXT_I386_FULL;
     cpu.ctx.Eip=(DWORD)(uintptr_t)(app->base+app->nt->OptionalHeader.AddressOfEntryPoint);
     cpu.ctx.Esp=(DWORD)(uintptr_t)sp;cpu.ctx.SegCs=0x23;cpu.ctx.SegSs=ss;cpu.ctx.SegFs=guest_fs_sel;cpu.ctx.EFlags=0x202;
+    main_guest_context=&cpu.ctx;
     DWORD result=probe_run32(&cpu.ctx);
+    if(wine_process_exit_thread&&*wine_process_exit_thread&&*wine_process_exit_thread!=GetCurrentThreadId())Sleep(INFINITE);
+    InterlockedExchange(&native_process_shutdown,1);
     if(wine_components)
     {
         DWORD flush_args[]={0};

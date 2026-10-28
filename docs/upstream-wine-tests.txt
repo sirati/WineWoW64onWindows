@@ -671,3 +671,25 @@ and is retained separately. SSH staging avoids the failed Z: reads.
 Evidence: evidence/thread-tail-c4b7d49/vm-results-ssh/normalized/.
 Archive SHA256: 68eb6e0ef80cfcb5643705e5cfc0bed08ae5ed6074495f8e09ea88bd0d5c3802.
 Primary audit: evidence/thread-tail-c4b7d49/primary-audit.json.
+
+Worker-initiated process exit
+
+An isolated control on unchanged c4b7d49 confirms that the return hook ends
+only the requesting worker. Native worker/main controls and all five Wine
+main controls exit 37. All five Wine worker controls instead exit 78 after
+the main thread observes worker exit 37 and prints that it survived process
+exit. All twelve processes finish without timeout, with the intended modes
+and Wine application-load markers. The direct suite exits 1. Candidate and
+supplemental hashes match before/after, and the VM is destroyed.
+Evidence: evidence/worker-exit-c4b7d49/vm-results/normalized/diagnostic-results/.
+Archive SHA256: b6f36e29920cb76f1222fa968673c96cb6d4e7ad9ef369fee4030864b8073dca.
+Primary audit: evidence/worker-exit-c4b7d49/primary-audit.json.
+
+The pending adapter records the first requesting guest thread before returning
+through its CPU gate. A worker or nested request runs Wine's loader/PEB lock
+and DLL shutdown sequence on that thread, with native stop-other-thread
+coordination. The top-level main invocation retains its host-return path.
+No guest NT service is added. This change has not been Windows-validated.
+The permanent fixture requires process exit 37 and a DLL process-detach
+marker, with separate worker, main and spinning-main modes. Keep the original
+control executable byte-identical for the next candidate comparison.
