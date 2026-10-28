@@ -13,8 +13,9 @@ void WINAPI app_entry(void)
     system_fn system=(system_fn)GetProcAddress(GetModuleHandleA("ntdll.dll"),"NtQuerySystemInformation");
     void *peb;BOOL wow;ULONG length;
     __asm__ __volatile__("movl %%fs:0x30,%0":"=r"(peb));
-    HANDLE process=OpenProcess(PROCESS_QUERY_INFORMATION,FALSE,GetCurrentProcessId());
-    if(!query||!system||!process)ExitProcess(71);
+    HANDLE process=NULL;
+    if(!query||!system||!DuplicateHandle(GetCurrentProcess(),GetCurrentProcess(),GetCurrentProcess(),
+                                        &process,PROCESS_QUERY_INFORMATION,FALSE,0))ExitProcess(71);
     HANDLE handles[]={GetCurrentProcess(),process};
     for(unsigned i=0;i<2;i++)
     {

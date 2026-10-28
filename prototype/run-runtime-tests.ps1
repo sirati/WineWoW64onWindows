@@ -29,7 +29,9 @@ foreach($program in $Programs) {
             if($program -eq 'io_thread_exit32' -and $guestArguments -match '(^|\s)--spin($|\s)') {
                 $modeMatches=$out.Result -match 'spin-issuer mode:\s*00000001'
             }
-            $rows+=[pscustomobject]@{probe=$program;native=$native;iteration=$i;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;exitCode=$p.ExitCode;timedOut=$timeout;passed=(-not $timeout -and $p.ExitCode -eq 0 -and $out.Result -match $pattern -and $modeMatches);stdout=$out.Result;stderr=$err.Result}
+            $loaderMatches=$native -or ($out.Result -match 'WINE_LOAD_APPLICATION status=00000000' -and
+                                       $out.Result -match 'GUEST_EXIT code=0 .*HOST_RETURNED')
+            $rows+=[pscustomobject]@{probe=$program;native=$native;iteration=$i;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;exitCode=$p.ExitCode;timedOut=$timeout;passed=(-not $timeout -and $p.ExitCode -eq 0 -and $out.Result -match $pattern -and $modeMatches -and $loaderMatches);stdout=$out.Result;stderr=$err.Result}
             $p.Dispose()
             if($StopOnFailure -and -not $rows[-1].passed){break}
         }
