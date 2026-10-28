@@ -20,16 +20,18 @@ in runCommand "wine-11.0-upstream-x86-tests" {
   #include <_mingw.h>
   #include "ntstatus.h"
   #define WIN32_NO_STATUS
+  #define WINE_NO_INLINE_STRING
   #include "windef.h"
   #include "winbase.h"
   #include "wincon.h"
+  #include "winternl.h"
   EOF
   for test in ntdll/rtlbitmap ntdll/large_int ntdll/error ntdll/rtlstr \
       ntdll/string ntdll/time ntdll/env kernel32/fiber kernel32/heap \
       kernel32/thread kernel32/sync msvcrt/cpp; do
     module="''${test%/*}"
     name="''${test#*/}"
-    "$compiler" -O2 -g -DSTANDALONE -D__WINE_PE_BUILD \
+    "$compiler" -O2 -g -fno-builtin -DSTANDALONE -D__WINE_PE_BUILD \
       -D__WINESRC__ -I source/include -iquote source/include/msvcrt \
       -include ./test-preinclude.h \
       -nostdlib "source/dlls/$module/tests/$name.c" debug.o \
