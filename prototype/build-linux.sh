@@ -158,6 +158,7 @@ for unit in file process registry security sync syscall system virtual; do
       -DpBTCpuNotifyUnmapViewOfSection=wine_wow64_pBTCpuNotifyUnmapViewOfSection)
   fi
   if [[ "$unit" == process ]]; then
+    extra+=( -DNtAlertMultipleThreadByThreadId=probe_NtAlertMultipleThreadByThreadId )
     extra+=( -DRtlWow64GetThreadSelectorEntry=probe_RtlWow64GetThreadSelectorEntry )
     extra+=( -DNtQueryInformationProcess=probe_NtQueryInformationProcess )
     extra+=( -DNtSetInformationProcess=probe_NtSetInformationProcess -DNtQueueApcThread=probe_NtQueueApcThread -DNtCreateThreadEx=probe_NtCreateThreadEx -DNtTerminateThread=probe_NtTerminateThread -DNtQueryInformationThread=probe_NtQueryInformationThread -DNtSetInformationThread=probe_NtSetInformationThread -DNtGetNextThread=probe_NtGetNextThread )

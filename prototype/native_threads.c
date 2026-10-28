@@ -24,8 +24,19 @@ struct pending_apc { LIST_ENTRY entry;PNTAPCFUNC function;ULONG_PTR args[3]; };
 static SRWLOCK threads_lock=SRWLOCK_INIT;
 static LIST_ENTRY threads={&threads,&threads};
 static DWORD thread_slot=TLS_OUT_OF_INDEXES;
+static NTSTATUS (WINAPI *native_alert_multiple)(HANDLE *,ULONG,void *,void *);
 void probe_threads_init(void)
-{ thread_slot=TlsAlloc();if(thread_slot==TLS_OUT_OF_INDEXES)ExitProcess(94); }
+{
+    thread_slot=TlsAlloc();if(thread_slot==TLS_OUT_OF_INDEXES)ExitProcess(94);
+    native_alert_multiple=(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtAlertMultipleThreadByThreadId");
+}
+NTSTATUS WINAPI probe_NtAlertMultipleThreadByThreadId(HANDLE *threads,ULONG count,void *unknown1,void *unknown2)
+{
+    /* The target Windows exports this API independently of the MinGW import
+     * library version. Wine's original thunk owns the handle-array conversion. */
+    return native_alert_multiple?native_alert_multiple(threads,count,unknown1,unknown2):STATUS_NOT_IMPLEMENTED;
+}
+NTSTATUS (WINAPI *__imp_probe_NtAlertMultipleThreadByThreadId)(HANDLE *,ULONG,void *,void *)=probe_NtAlertMultipleThreadByThreadId;
 static BOOL same_thread(HANDLE a,HANDLE b)
 {
     typedef NTSTATUS (WINAPI *compare_fn)(HANDLE,HANDLE);
