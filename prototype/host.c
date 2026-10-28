@@ -222,7 +222,7 @@ NTSTATUS WINAPI probe_NtFreeVirtualMemory(HANDLE process,void **address,SIZE_T *
     for(LIST_ENTRY *e=stacks.Flink;e!=&stacks;e=e->Flink)
     {
         struct guest_stack *s=CONTAINING_RECORD(e,struct guest_stack,entry);
-        if(!s->guest_allocated||*address!=s->guest_base)continue;
+        if(*address!=s->guest_base)continue;
         void *base=s->base;SIZE_T actual_size=*size;
         NTSTATUS status=NtFreeVirtualMemory(process,&base,&actual_size,type);
         if(!status){RemoveEntryList(&s->entry);HeapFree(GetProcessHeap(),0,s);*address=base;*size=actual_size;}
@@ -235,7 +235,7 @@ NTSTATUS (WINAPI *__imp_probe_NtFreeVirtualMemory)(HANDLE,void **,SIZE_T *,ULONG
 static BOOL stack_matches_teb(struct guest_stack *s,TEB32 *teb)
 {
     if(!teb)return FALSE;
-    if(s->guest_allocated&&s->guest_base==(BYTE *)(ULONG_PTR)teb->DeallocationStack)
+    if(s->guest_base==(BYTE *)(ULONG_PTR)teb->DeallocationStack)
         s->teb=teb;
     return s->teb==teb;
 }
@@ -670,7 +670,22 @@ static void free_guest_thread_storage(void *opaque)
     if(job->record)
         HeapFree(GetProcessHeap(),0,probe_thread_take_exception_state(job->record));
     if(job->native)CloseHandle(job->native);
-    if(job->stack)stack_free(job->stack);
+    if(job->stack)
+    {
+        /* Wine switches DeallocationStack with each fiber. A converted
+         * thread's original stack can outlive that thread when it exits on
+         * another fiber. Wine's DeleteFiber will release the retained stack. */
+        BYTE *active=job->teb&&((TEB32 *)job->teb)->DeallocationStack?
+            (BYTE *)(ULONG_PTR)((TEB32 *)job->teb)->DeallocationStack:job->stack;
+        if(stack_find(active))stack_free(active);
+    }
+    AcquireSRWLockExclusive(&stack_lock);
+    for(LIST_ENTRY *e=stacks.Flink;e!=&stacks;e=e->Flink)
+    {
+        struct guest_stack *s=CONTAINING_RECORD(e,struct guest_stack,entry);
+        if(s->teb==(TEB32 *)job->teb)s->teb=NULL;
+    }
+    ReleaseSRWLockExclusive(&stack_lock);
     if(job->teb)VirtualFree(job->teb,0,MEM_RELEASE);
     VirtualFree(job,0,MEM_RELEASE);
 }
