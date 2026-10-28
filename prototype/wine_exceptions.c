@@ -275,7 +275,14 @@ void probe_exception_init(void *dispatcher,void *raise_dispatcher,WORD ss)
 BOOL probe_dispatch_guest_exception(EXCEPTION_POINTERS *p)
 {
     extern int probe_trace;
+    extern BOOL probe_inside_syscall(void);
     struct guest_cpu *cpu=probe_current_cpu();CONTEXT *context=p->ContextRecord;
+    /* Wine signal_x86_64.c handle_syscall_trap ignores hardware breakpoints
+     * inside a syscall. Resume the native instruction stream rather than
+     * unwinding the protected thunk and abandoning any locks it owns. Guest
+     * accesses to the same watched address still reach the guest dispatcher. */
+    if(cpu&&context->SegCs==0x33&&probe_inside_syscall()&&
+       p->ExceptionRecord->ExceptionCode==STATUS_SINGLE_STEP&&(context->Dr6&0xf))return TRUE;
     if(!cpu||context->SegCs!=0x23||context->R13!=(uintptr_t)&cpu->ctx)return FALSE;
     /* Wine's signal_x86_64.c TRAP_x86_ALIGNFLT path retries with AC reset,
      * without delivering a guest exception when that flag caused the trap. */

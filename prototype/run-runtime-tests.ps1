@@ -29,6 +29,7 @@ foreach($program in $Programs) {
             $pattern=switch($program){
                 'builtin_process32' { '(?m)^builtin_process32: system command interpreter loads as x86, stays suspended and terminates cleanly passed\r?$' }
                 'alignment32' { '(?m)^alignment32: alignment-check retry preserves guest execution without handler delivery passed\r?$' }
+                'syscall_breakpoint32' { '(?m)^syscall_breakpoint32: guest watchpoint delivered, syscall watchpoint ignored and later thread creation passed\r?$' }
                 'unixlib_fault32' { '(?m)^unixlib_fault32: invalid tables return access-violation status and guest execution continues passed\r?$' }
                 'process_create32' { '(?m)^process_create32: child loading, suspended DLL attach, Unicode parameters, inherited handles and redirected output passed\r?$' }
                 'named_objects32' { '(?m)^named_objects32: session, Local mappings, events, semaphores and mutexes passed\r?$' }

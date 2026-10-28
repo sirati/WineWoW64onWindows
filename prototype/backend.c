@@ -45,6 +45,7 @@ struct temp_frame { void *blocks[256];unsigned count;UINT service; };
 static DWORD temp_slot;
 void probe_backend_init(void)
 { temp_slot=TlsAlloc();if(temp_slot==TLS_OUT_OF_INDEXES) ExitProcess(94); }
+BOOL probe_inside_syscall(void) { return TlsGetValue(temp_slot)!=NULL; }
 /* Wine's NLS pointer thunk is retained. Its host service must return tables
  * below 4 GiB, as Wine's Unix backend normally does for WoW64. */
 NTSTATUS WINAPI probe_NtGetNlsSectionPtr(ULONG type,ULONG id,void *unknown,void **out,SIZE_T *out_size)
