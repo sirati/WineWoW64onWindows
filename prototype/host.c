@@ -1224,5 +1224,6 @@ int main(int argc,char **argv)
         call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeShutdownProcess",0),&gate[2],NULL,0);
     }
     printf("GUEST_EXIT code=%lu nt_calls=%lu native_dll_calls=%lu fs_repairs=%lu HOST_RETURNED\n",result,probe_nt_calls,probe_library_calls,probe_fs_repairs);
+    if(wine_components)for(;;)NtTerminateProcess(GetCurrentProcess(),result);
     return result;
 }
