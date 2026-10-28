@@ -1,5 +1,5 @@
 #include "test_support.h"
-typedef LONG (__cdecl *dispatch_t)(ULONGLONG,ULONG,void *);
+typedef LONG (WINAPI *dispatch_t)(ULONGLONG,ULONG,void *);
 void WINAPI app_entry(void)
 {
     dispatch_t *dispatcher=(void *)GetProcAddress(GetModuleHandleA("ntdll.dll"),"__wine_unix_call_dispatcher");
