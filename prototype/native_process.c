@@ -12,6 +12,8 @@
 #include <stdint.h>
 #include "wine/server_protocol.h"
 #include "native_process.h"
+extern NTSTATUS WINAPI probe_NtOpenFile(HANDLE *,ACCESS_MASK,OBJECT_ATTRIBUTES *,
+                                       IO_STATUS_BLOCK *,ULONG,ULONG);
 
 #define wine_server_obj_handle(handle) HandleToULong(handle)
 #define wine_server_ptr_handle(handle) ULongToHandle(handle)
@@ -209,7 +211,7 @@ NTSTATUS WINAPI probe_NtCreateUserProcess(HANDLE *process_result,HANDLE *thread_
     OBJECT_ATTRIBUTES file_attributes;
     IO_STATUS_BLOCK io;
     InitializeObjectAttributes(&file_attributes,&image_name,OBJ_CASE_INSENSITIVE,NULL,NULL);
-    status=NtOpenFile(&file,FILE_EXECUTE|FILE_READ_DATA|SYNCHRONIZE,&file_attributes,&io,
+    status=probe_NtOpenFile(&file,FILE_EXECUTE|FILE_READ_DATA|SYNCHRONIZE,&file_attributes,&io,
                       FILE_SHARE_READ|FILE_SHARE_DELETE,FILE_SYNCHRONOUS_IO_NONALERT|FILE_NON_DIRECTORY_FILE);
     if(status)goto done;
     status=NtCreateSection(&image_section,SECTION_QUERY,NULL,NULL,PAGE_READONLY,SEC_IMAGE,file);

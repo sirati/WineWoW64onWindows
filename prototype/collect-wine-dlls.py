@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Copy preserved stock Wine DLLs and their static import dependencies."""
+"""Ship Wine's x86 PE libraries with their static import dependencies."""
 import json
 import pathlib
 import shutil
@@ -8,12 +8,11 @@ import sys
 
 root = pathlib.Path(sys.argv[1])
 out = pathlib.Path("prototype/stock-wine/i386-windows")
-files = {p.name.lower(): p for p in root.iterdir() if p.suffix.lower() in ('.dll', '.drv')}
+files = {p.name.lower(): p for p in root.iterdir()
+         if p.suffix.lower() in ('.dll', '.drv', '.exe', '.cpl', '.ocx', '.acm')}
 seen = set()
-todo = ["ntdll.dll", "kernelbase.dll", "kernel32.dll", "msvcrt.dll", "oleaut32.dll",
-        "user32.dll", "advapi32.dll", "ws2_32.dll", "version.dll", "msvcr100.dll",
-        "opengl32.dll", "winmm.dll", "comdlg32.dll", "wsock32.dll", "dsound.dll",
-        "bcryptprimitives.dll", "userenv.dll"]
+# A normal Wine installation supplies the complete builtin library set.
+# Dynamic LoadLibrary callers cannot be covered by static import closure.
 
 def dependencies(path):
     data = path.read_bytes()
@@ -60,6 +59,17 @@ def dependencies(path):
                 result.append(name)
     return result
 
+imports = {name: dependencies(path) for name, path in files.items()}
+# Wine's minimal build omits optional backends and the separate Win16 runtime.
+# Do not install libraries whose import closure requires an absent component.
+excluded = {name for name, deps in imports.items() if any(dep not in files for dep in deps)}
+while True:
+    dependants = {name for name, deps in imports.items() if any(dep in excluded for dep in deps)}
+    if dependants <= excluded:
+        break
+    excluded |= dependants
+todo = sorted(files.keys() - excluded)
+
 while todo:
     name = todo.pop()
     if name in seen:
@@ -70,6 +80,9 @@ while todo:
     source = files[name]
     if not (out / source.name).exists():
         shutil.copyfile(source, out / source.name)
-    todo.extend(dependencies(source))
+    todo.extend(imports[name])
 pathlib.Path("evidence/wine-import-dependencies.json").write_text(json.dumps(sorted(seen), indent=2) + "\n")
-print("Wine dependency DLLs:", ", ".join(sorted(seen)))
+pathlib.Path("evidence/wine-excluded-pe-libraries.json").write_text(json.dumps(
+    {name: [dep for dep in imports[name] if dep not in files or dep in excluded]
+     for name in sorted(excluded)}, indent=2) + "\n")
+print(f"Wine x86 builtin PEs: {len(seen)} installed, {len(excluded)} require unavailable components")

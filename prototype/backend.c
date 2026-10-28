@@ -139,15 +139,19 @@ NTSTATUS WINAPI probe_NtOpenFile(HANDLE *file,ACCESS_MASK access,OBJECT_ATTRIBUT
         for(unsigned i=0;i<name.Length/sizeof(WCHAR);i++)if(buffer[i]==L'/')buffer[i]=L'\\';
         name.Buffer=buffer;copy.ObjectName=&name;
     }
-    /* Wine API-set resolution uses its logical C:\windows\system32 path.
-     * Route that namespace to Wine's DLL directory on a Windows host. */
+    /* Wine uses its logical C:\windows\system32 namespace for builtin
+     * libraries and programs. Open those x86 PEs from the installed runtime. */
     WCHAR mapped[2048],stock[1024];
     static const WCHAR *prefixes[]={L"\\??\\C:\\windows\\system32\\",L"\\??\\C:\\windows\\syswow64\\"};
     if(copy.ObjectName)
     for(unsigned i=0;i<2;i++)
     {
         size_t prefix=wcslen(prefixes[i]),length=name.Length/sizeof(WCHAR);
-        if(length>prefix+4&&!wcsnicmp(name.Buffer,prefixes[i],prefix)&&!wcsnicmp(name.Buffer+length-4,L".dll",4))
+        static const WCHAR *extensions[]={L".dll",L".drv",L".exe",L".cpl",L".ocx",L".acm"};
+        BOOL image=FALSE;
+        if(length>prefix+4)for(unsigned j=0;j<ARRAY_SIZE(extensions);j++)
+            if(!wcsnicmp(name.Buffer+length-4,extensions[j],4)){image=TRUE;break;}
+        if(image&&!wcsnicmp(name.Buffer,prefixes[i],prefix))
         {
             if(length-prefix>900||!probe_runtime_path(stock,ARRAY_SIZE(stock),L"stock-wine"))return STATUS_NAME_TOO_LONG;
             swprintf(mapped,2048,L"\\??\\%s\\%s",stock,name.Buffer+prefix);
