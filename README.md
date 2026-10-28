@@ -36,7 +36,7 @@ outputs rather than separately maintained implementations.
 Tests are a separate Nix output:
 
 ```sh
-nix build '.#default^tests' --out-link result-tests
+nix build '.#default^tests'
 ```
 
 Their example native x64 bridge DLL and test EXEs are excluded from the runtime
