@@ -25,6 +25,7 @@ python3 prototype/extract-exceptions.py
 python3 prototype/select-wine-thunks.py
 python3 prototype/extract-native-sockets.py
 python3 prototype/extract-wine-unixlib.py
+python3 prototype/extract-wine-process-params.py
 source prototype/build-wine-sockets.sh
 perl -0777 -ne '/(^static inline void set_async_iosb\([^\n]*\)\n\{.*?^\})/ms or die "Wine async IOSB helper missing";print "$1\n";' \
   wine-11.0-source/dlls/ntdll/unix/unix_private.h > prototype/out/wine-async-iosb.inc
@@ -79,8 +80,9 @@ python3 prototype/check-transition-image.py prototype/out/guest/transition32.dll
 guest_flags=(-O2 -D_WIN32_WINNT=0x0601 -ffreestanding -fno-stack-protector -nostdlib)
 "$cc32" "${guest_flags[@]}" prototype/hello32.c -lkernel32 prototype/out/libguest_kernel32.a \
   -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/hello32.exe
-for test in stress32 teb32 tls32 tls_slots32 threads32 files32 dynamic32 file_semantics32 heap32 memory_status32 return32 concurrent32 fs_recovery32 async_event32 pipe_control32 apc32 io_notify32 io_thread_exit32 thread_context32 thread_exit_context32 thread_delayed_context32 thread_create32 thread_priority32 selector_identity32 activation_context32 worker_process_exit32 threadpool_wait32 condition_wake32 thread_affinity32 thunk_fault32 xstate32 xstate_components32 fiber32 fiber_thread_exit32 wine_debug32 tick_count32 stack_growth32 mitigation32; do
+for test in stress32 teb32 tls32 tls_slots32 threads32 files32 dynamic32 file_semantics32 heap32 memory_status32 return32 concurrent32 fs_recovery32 async_event32 pipe_control32 apc32 io_notify32 io_thread_exit32 thread_context32 thread_exit_context32 thread_delayed_context32 thread_create32 thread_priority32 selector_identity32 activation_context32 worker_process_exit32 threadpool_wait32 condition_wake32 thread_affinity32 thunk_fault32 xstate32 xstate_components32 fiber32 fiber_thread_exit32 wine_debug32 tick_count32 stack_growth32 mitigation32 process_parameters32; do
   test_flags=();if [[ "$test" == xstate32 ]];then test_flags+=( -msse2 );fi
+  if [[ "$test" == process_parameters32 ]];then test_flags+=( "${flags[@]}" "${inc[@]}" );fi
   "$cc32" "${guest_flags[@]}" "${test_flags[@]}" prototype/$test.c -lkernel32 prototype/out/libguest_kernel32.a \
     -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/$test.exe
 done
@@ -174,7 +176,7 @@ for unit in file process registry security sync syscall system virtual; do
   "$cc64" "${flags[@]}" "${extra[@]}" "${inc[@]}" -Iwine-11.0-source/dlls/wow64 \
     -c "$unit_source" -o prototype/out/wine-$unit.o
 done
-"$cc64" "${flags[@]}" "${inc[@]}" prototype/host.c prototype/backend.c prototype/wine_cpu_adapter.c prototype/wine_exceptions.c prototype/wine_extended_context.c prototype/xstate.c prototype/native_io.c prototype/native_sockets.c prototype/native_socket_io.c prototype/native_threads.c prototype/native_loader.c prototype/native_debug.c \
+"$cc64" "${flags[@]}" "${inc[@]}" prototype/host.c prototype/backend.c prototype/wine_cpu_adapter.c prototype/wine_exceptions.c prototype/wine_extended_context.c prototype/xstate.c prototype/native_io.c prototype/native_sockets.c prototype/native_socket_io.c prototype/native_threads.c prototype/native_loader.c prototype/native_debug.c prototype/native_process_params.c \
   prototype/out/wine-file.o prototype/out/wine-process.o prototype/out/wine-sync.o prototype/out/wine-virtual.o \
   prototype/out/wine-registry.o \
   prototype/out/wine-system.o prototype/out/wine-security.o \

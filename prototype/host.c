@@ -609,67 +609,19 @@ static void report_mitigations(void)
     printf("MITIGATION DEP=%d enabled=%d permanent=%d ASLR=%d flags=%lx CFG=%d flags=%lx dynamic-code=%d flags=%lx CET=%d flags=%lx\n",
         e,!!(dep.flags&1),dep.permanent,a,aslr,c,cfg,d,dyn,s,cet);
 }
-static void copy_string32(UNICODE_STRING32 *dst,const WCHAR *str,BYTE **next)
+extern RTL_USER_PROCESS_PARAMETERS32 *probe_initial_process_parameters(const WCHAR *,int,const WCHAR *);
+extern BOOL probe_host_application_path(int,WCHAR *,DWORD);
+static void init_guest_process_params(struct guest_module *app,int first_argument)
 {
-    SIZE_T bytes=(wcslen(str)+1)*sizeof(WCHAR);
-    memcpy(*next,str,bytes);dst->Length=(USHORT)(bytes-2);dst->MaximumLength=(USHORT)bytes;
-    dst->Buffer=(DWORD)(uintptr_t)*next;*next+=bytes;
-}
-static void init_guest_process_params(struct guest_module *app,int argc,char **argv)
-{
-    BYTE *mem=low_alloc(0x3c000000,0x20000,PAGE_READWRITE),*next;
-    RTL_USER_PROCESS_PARAMETERS32 *p=(void *)mem;
-    WCHAR cwd[1024],cmd[16384],dllpath[4096],stock[1024];
-    if(!mem) fail("guest process parameters");next=mem+sizeof(*p);
-    p->AllocationSize=0x20000;p->Size=sizeof(*p);p->Flags=1;
-    p->hStdInput=(DWORD)(uintptr_t)GetStdHandle(STD_INPUT_HANDLE);
-    p->hStdOutput=(DWORD)(uintptr_t)GetStdHandle(STD_OUTPUT_HANDLE);
-    p->hStdError=(DWORD)(uintptr_t)GetStdHandle(STD_ERROR_HANDLE);
-    if(!GetCurrentDirectoryW(1024,cwd)) fail("current directory");
-    if(cwd[wcslen(cwd)-1]!=L'\\') wcscat(cwd,L"\\");
-    copy_string32(&p->CurrentDirectory.DosPath,cwd,&next);
-    /* Wine's startup initializer retains this buffer capacity. Match the
-     * Windows startup contract before it copies the staging parameters. */
-    if(p->CurrentDirectory.DosPath.MaximumLength<MAX_PATH*sizeof(WCHAR))
-    {
-        next+=MAX_PATH*sizeof(WCHAR)-p->CurrentDirectory.DosPath.MaximumLength;
-        p->CurrentDirectory.DosPath.MaximumLength=MAX_PATH*sizeof(WCHAR);
-    }
-    HANDLE dir=CreateFileW(cwd,FILE_TRAVERSE|SYNCHRONIZE,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,0,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS,0);
-    if(dir==INVALID_HANDLE_VALUE) fail("current directory handle");
-    p->CurrentDirectory.Handle=(DWORD)(uintptr_t)dir;
-    copy_string32(&p->ImagePathName,app->path,&next);
-    swprintf(cmd,16384,L"\"%s\"",app->path);
-    for(int i=0;i<argc;i++)
-    {
-        WCHAR arg[4096];MultiByteToWideChar(CP_ACP,0,argv[i],-1,arg,4096);
-        size_t used=wcslen(cmd);if(used+wcslen(arg)*2+4>=16384)fail("command line length");
-        WCHAR *dst=cmd+used;*dst++=L' ';*dst++=L'"';
-        unsigned slashes=0;
-        for(WCHAR *src=arg;;src++)
-        {
-            if(*src==L'\\') { slashes++;continue; }
-            unsigned count=(*src==L'"'||!*src)?slashes*2:slashes;
-            while(count--)*dst++=L'\\';slashes=0;
-            if(!*src)break;
-            if(*src==L'"')*dst++=L'\\';
-            *dst++=*src;
-        }
-        *dst++=L'"';*dst=0;
-    }
-    copy_string32(&p->CommandLine,cmd,&next);
+    WCHAR dllpath[4096],stock[1024],cwd[1024];
+    if(!GetCurrentDirectoryW(ARRAY_SIZE(cwd),cwd))fail("current directory");
     if(!probe_runtime_path(stock,ARRAY_SIZE(stock),L"stock-wine"))fail("Wine DLL directory");
     wcscpy(dllpath,app->path);WCHAR *end_path=wcsrchr(dllpath,L'\\');if(end_path)*end_path=0;
     wcscat(dllpath,L";");wcscat(dllpath,stock);wcscat(dllpath,L";");wcscat(dllpath,cwd);
     if(!probe_loader_append_paths(dllpath,ARRAY_SIZE(dllpath)))fail("Wine builtin search path");
-    copy_string32(&p->DllPath,dllpath,&next);
-    WCHAR *env=GetEnvironmentStringsW(),*end=env;
-    if(!env) fail("environment");while(*end) end+=wcslen(end)+1;
-    SIZE_T env_size=(end-env+1)*sizeof(WCHAR);
-    if(next+env_size>mem+0x20000) fail("process parameters size");
-    memcpy(next,env,env_size);p->Environment=(DWORD)(uintptr_t)next;p->EnvironmentSize=(DWORD)env_size;
-    FreeEnvironmentStringsW(env);
-    *(DWORD *)(guest_peb+0x10)=(DWORD)(uintptr_t)p;
+    RTL_USER_PROCESS_PARAMETERS32 *params=probe_initial_process_parameters(app->path,first_argument,dllpath);
+    if(!params)fail("guest process parameters");
+    ((PEB32 *)guest_peb)->ProcessParameters=PtrToUlong(params);
     /* API-set entries contain offsets, so the Windows namespace can be
      * copied into guest-addressable memory and parsed by Wine unchanged. */
     const API_SET_NAMESPACE *apiset=NtCurrentTeb()->Peb->ApiSetMap;
@@ -1101,13 +1053,13 @@ int main(int argc,char **argv)
     struct guest_module app_data={.name=app_name},*app=&app_data;
     if(wine_components)
     {
-        WCHAR relative[1024];MultiByteToWideChar(CP_ACP,0,app_arg,-1,relative,1024);
-        if(!GetFullPathNameW(relative,1024,app->path,NULL))fail("application absolute path");
+        if(!probe_host_application_path(2,app->path,ARRAY_SIZE(app->path)))fail("application absolute path");
     }
     else
     {
         if(early_image_reservation) { VirtualFree(early_image_reservation,0,MEM_RELEASE);early_image_reservation=NULL; }
-        WCHAR path[32768];MultiByteToWideChar(CP_ACP,0,app_arg,-1,path,ARRAY_SIZE(path));
+        WCHAR path[32768];
+        if(!probe_host_application_path(1,path,ARRAY_SIZE(path)))fail("application absolute path");
         app=load_image(path,app_name);
     }
     init_guest_teb(app->base);
@@ -1115,7 +1067,7 @@ int main(int argc,char **argv)
     probe_debug_init(guest_peb,app_name);
     if(!wine_components)set_guest_address_limit(app->nt->FileHeader.Characteristics);
     int arg_start=wine_components?3:2;
-    if(wine_components) init_guest_process_params(app,argc>arg_start?argc-arg_start:0,argv+(argc>arg_start?arg_start:argc));
+    if(wine_components) init_guest_process_params(app,arg_start);
     for(unsigned i=0;i<nmods;i++) if(!wine_components||&mods[i]!=app)resolve_imports(&mods[i]);
     struct far_thunk *gate=map_transition_gates(cs);
     guest_return_gate=&gate[2];
