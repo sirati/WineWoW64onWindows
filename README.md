@@ -65,6 +65,7 @@ The kernel32 fiber, heap, thread and synchronization suites are opt-in through
 support, so their failures need individual diagnosis. Failures unrelated to
 GUI or excluded services take priority. The test build uses Wine's original
 standalone runner and Windows debug helper without changing their sources.
+See [upstream test results and priorities](docs/upstream-wine-tests.txt).
 
 Windows VM execution is a separate validation step. Luna 6 runs those tests
 from a frozen, separate Git worktree. The test bundle records the commit and

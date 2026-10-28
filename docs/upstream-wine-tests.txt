@@ -1,0 +1,78 @@
+Upstream Wine 11 x86 tests on Windows, 2026-10-28
+
+Build: nix build .#wine-tests
+Wine revision: db11d0fe6a169c457e23d007e20404643d067aa8
+Source: hash-pinned wine-11.0.tar.xz, shared with the runtime derivation.
+Test .c sources, include/wine/test.h and winecrt0/debug.c are unmodified.
+Nix supplies the standalone runner configuration and MinGW link commands.
+Microsoft CRT formatting semantics are required. ISO swprintf semantics caused
+65,266 Unicode formatting failures natively as well as in the port. Those
+executions remain in the evidence and are not runtime regressions.
+
+The runner records file hashes, raw streams, actual arguments, numeric exits
+and timeouts. Summaries must belong to the launched process's PID. A child's
+summary cannot replace its parent's. Unsupported-service logs do not by
+themselves establish the cause of assertion failures.
+
+Verified milestone: fcf5a13dde2fb0fc56e63b54355bf3f3d01db87b
+Host SHA256: 3B957B47B406559AAAF4912982BA5817570582983F490E01BDBB25631EEBD1A3
+Luna 6 verified all 106 deployed file hashes in a separate frozen worktree.
+
+| Suite | Port checks executed | Unexpected port failures | Native result |
+|---|---:|---:|---|
+| ntdll rtlbitmap | 378 | 0 | Pass, 350 checks |
+| ntdll large_int | 740 | 0 | Pass |
+| ntdll error | 1,448 | 0 | Pass |
+| ntdll rtlstr | 2,178,627 | 0 | Pass |
+| ntdll string | 1,974,183 | 0 | Pass |
+| ntdll env | 603 | 0 | One ConsoleFlags assertion fails |
+| msvcrt cpp | 629 | 0 | Pass, 628 checks |
+| ntdll time | Incomplete | Crash, 0xc0000005 | Five timer-resolution assertions fail |
+
+The seven completed port suites execute 4,156,608 checks, including five
+expected Wine todos. Each exits 0 with its own summary and loader marker.
+No default run timed out. The full upstream test suite does not pass.
+
+Established fixes
+
+The environment test crashed while inspecting startup parameters outside
+Wine's heap. The bootstrap now calls Wine's original init_user_process_params
+after loading the main image. Wine owns the final parameters, separate
+environment allocation and directory initialization. Supplying the expected
+startup directory buffer capacity removes its remaining length assertion.
+All seven required exception checks and twelve focused notification, socket
+and thread runs pass on the intermediate d1eea95 candidate.
+
+The last Unicode mismatch used Windows' legacy l_intl.nls. Supplying pinned
+Wine l_intl.nls through the existing NLS storage adapter fixes U+037F to
+U+03F3 without changing Wine's string/case algorithms.
+
+Expanded suites and next fixes
+
+| Finding | Cause or next action | Difficulty |
+|---|---|---|
+| Tick counts have wrong units | Wine ignores TickCountMultiplier because its Unix backend supplies milliseconds. Honor the multiplier and verify against elapsed time. | Low |
+| TLS slot 16 not reserved | Mirror Wine's loader initialization using NTDLL_TLS_ERRNO from its own header. | Low |
+| Worker says already a fiber | New thread staging copies the parent's fiber flag and active activation frames. Clear those fields before Wine initializes the worker. | Low to medium |
+| Single-step exception has status 4000001e | Normalize Windows WX86 statuses before Wine's dispatcher, then investigate later exception failures. | Low for conversion; later failures unclassified |
+| GlobalMemoryStatus discrepancies | Four assertions differ before heap subprocess tests. Diagnose memory accounting separately from missing subprocess services. | Medium |
+| Virtual allocation zero-bits/size discrepancies | Existing allocation semantics need separate controls. Later cases enter unsupported allocation variants. Preserve both observations. | Medium |
+| Full fiber suite | Original resources remove missing-manifest errors. Native Windows then reports private FLS-layout mismatches; the port has a separate worker-fiber defect. | Mixed |
+| Full exception suite | Native has 230 failures, mostly context/debugger expectations. The port stops earlier in exception tests. Diagnose each location. | Medium to high |
+| Timezone names and hypervisor shared page | Native information differs from Wine's Unix backend. The time test dereferences a null hypervisor-page pointer after an unsupported information-class assertion. | Medium; information-class scope needs separate treatment |
+| Missing sync/thread/process NT services | SignalObjectAndWait and subprocess creation have dependent failures. Only causally established service failures are excluded. | Excluded where established |
+
+The first kernel32 builds omitted resource.rc/wine_test.manifest. Native
+failures established that missing prerequisite. The first expanded ntdll
+thread build also omitted the embedded testdll.c/testdll.spec helper and
+fails its resource check natively. Later packaging supplies those files;
+earlier TLS assertions are independent of that missing DLL.
+Native wine_debug32 exit 77 is an inapplicable control: it requires Wine-only
+debug/version exports. Its port runs pass.
+
+Local evidence outside Git, in separate frozen checkouts:
+2026-10-28-wine-upstream-tests-luna/evidence/upstream-results/
+2026-10-28-wine-process-params-luna/evidence/process-params-results/
+2026-10-28-wine-nls-resources-luna/evidence/nls-resources-results/
+The initial runner selected a child's native kernel32 heap summary. The raw
+parent summary is 281,456 checks / 0 failures. Parent-PID matching fixes this.

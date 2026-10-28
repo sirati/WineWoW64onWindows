@@ -5,6 +5,9 @@ the Luna evidence bundles. The demonstrated forced-termination wait races
 pass on 5c02e38. This table distinguishes verified controls from remaining gaps.
 Difficulty is for this prototype, not for full Wine.
 
+Upstream test failures unrelated to GUI or excluded NT services take priority.
+The current per-suite results and easiest fixes are in docs/upstream-wine-tests.txt.
+
 | Area | Current result | Likely fix | Difficulty |
 |---|---|---|---|
 | Additional XSTATE components | Native plus ten Wine runs on 3b0e299 pass remote context round trips, APC delivery and exception-handler context edits for AVX, opmask, ZMM_Hi256 and Hi16_ZMM. | Enabled vector components are covered on this hardware. Other feature types require separate controls when exposed. | Passed for tested components |
