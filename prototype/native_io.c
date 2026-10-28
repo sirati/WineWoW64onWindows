@@ -302,8 +302,39 @@ static NTSTATUS native_read(HANDLE f,HANDLE e,void *c,IO_STATUS_BLOCK *io,const 
 { return NtReadFile(f,e,NULL,c,io,args->buffer,args->size,args->offset,args->key); }
 static NTSTATUS native_write(HANDLE f,HANDLE e,void *c,IO_STATUS_BLOCK *io,const struct probe_io_args *args)
 { return NtWriteFile(f,e,NULL,c,io,args->buffer,args->size,args->offset,args->key); }
+struct native_file_identity { ULONGLONG st_dev,st_ino; };
+static NTSTATUS query_native_file_identity(HANDLE handle,struct native_file_identity *identity)
+{
+    BY_HANDLE_FILE_INFORMATION info;
+    if(!GetFileInformationByHandle(handle,&info))
+    {
+        NTSTATUS status=RtlGetLastNtStatus();
+        return status<0?status:STATUS_UNSUCCESSFUL;
+    }
+    identity->st_dev=info.dwVolumeSerialNumber;
+    identity->st_ino=((ULONGLONG)info.nFileIndexHigh<<32)|info.nFileIndexLow;
+    return STATUS_SUCCESS;
+}
 static NTSTATUS native_fs_control(HANDLE f,HANDLE e,void *c,IO_STATUS_BLOCK *io,const struct probe_io_args *args)
-{ return NtFsControlFile(f,e,NULL,c,io,args->code,args->buffer,args->size,args->output,args->output_size); }
+{
+    HANDLE handle=f;
+    void *out_buffer=args->output;
+    ULONG out_size=args->output_size,size=0;
+    NTSTATUS status=STATUS_SUCCESS;
+    switch(args->code)
+    {
+#include "out/wine-file-identity.inc"
+    default:return NtFsControlFile(f,e,NULL,c,io,args->code,args->buffer,args->size,args->output,args->output_size);
+    }
+    /* The existing request adapter publishes the guest IOSB and delivers
+     * event/APC/port notifications after this native metadata query. */
+    if(!NT_ERROR(status))
+    {
+        io->Status=status;io->Information=size;
+        if(e)NtSetEvent((HANDLE)((ULONG_PTR)e&~(ULONG_PTR)1),NULL);
+    }
+    return status;
+}
 NTSTATUS probe_submit_io(probe_io_submit call,HANDLE file,HANDLE event,PIO_APC_ROUTINE apc,void *context,
                           IO_STATUS_BLOCK *io,const struct probe_io_args *args,BOOL synchronous_control)
 {

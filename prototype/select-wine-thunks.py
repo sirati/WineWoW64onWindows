@@ -43,3 +43,21 @@ if not overlapped:
     raise SystemExit('Wine is_fd_overlapped predicate missing')
 Path('prototype/out/wine-file-overlapped.inc').write_text(
     'static ' + overlapped[0].replace('struct fd *fd', 'struct file_state *fd') + '\n')
+
+# The PE loader uses this identity even when the filesystem has never assigned
+# a Windows object-ID GUID. Keep Wine's device/inode format and size checks;
+# the native filesystem supplies its volume serial and stable file index.
+file = Path('wine-11.0-source/dlls/ntdll/unix/file.c').read_text()
+begin = file.index('    case FSCTL_GET_OBJECT_ID:\n')
+end = file.index('\n    case FSCTL_SET_SPARSE:', begin)
+identity = file[begin:end]
+identity = identity.replace('        int fd, needs_close;\n        struct stat st;',
+                            '        struct native_file_identity st;')
+unix_query = '''            status = server_get_unix_fd( handle, 0, &fd, &needs_close, NULL, NULL );
+            if (status) break;
+            fstat( fd, &st );
+            if (needs_close) close( fd );'''
+assert identity.count(unix_query) == 1, 'Wine file identity query changed'
+identity = identity.replace(unix_query, '''            status = query_native_file_identity( handle, &st );
+            if (status) break;''')
+Path('prototype/out/wine-file-identity.inc').write_text(identity + '\n')
