@@ -50,7 +50,9 @@ in runCommand "wine-11.0-upstream-x86-tests" {
   #include "winternl.h"
   /* Exported by msvcrt, but absent from MinGW's public stdlib header. */
   _CRTIMP int __cdecl __getmainargs(int *,char ***,char ***,int,int *);
+  _CRTIMP int __cdecl __wgetmainargs(int *,wchar_t ***,wchar_t ***,int,int *);
   EOF
+  failed=()
   for test in ntdll/atom ntdll/change ntdll/directory ntdll/env ntdll/error \
       ntdll/exception ntdll/file ntdll/generated ntdll/info ntdll/large_int \
       ntdll/om ntdll/path ntdll/pipe ntdll/port ntdll/reg ntdll/rtl \
@@ -67,7 +69,8 @@ in runCommand "wine-11.0-upstream-x86-tests" {
     resources=()
     if [ "$module" = kernel32 ]; then resources+=(kernel32-res.o); fi
     if [ "$module" = ntdll ]; then resources+=(ntdll-res.o); fi
-    "$compiler" -O2 -g -fno-builtin -D__USE_MINGW_ANSI_STDIO=0 -DSTANDALONE -D__WINE_PE_BUILD \
+    printf 'Compiling upstream test %s\n' "$test"
+    if ! "$compiler" -O2 -g -fno-builtin -D__USE_MINGW_ANSI_STDIO=0 -DSTANDALONE -D__WINE_PE_BUILD \
       -D__WINESRC__ -I source/include -iquote source/include/msvcrt \
       -include ./test-preinclude.h \
       -nostdlib "source/dlls/$module/tests/$name.c" debug.o "''${resources[@]}" \
@@ -75,8 +78,14 @@ in runCommand "wine-11.0-upstream-x86-tests" {
       -Wl,--dynamicbase,--nxcompat,--no-insert-timestamp,--start-group \
       -lmingw32 -lgcc -lgcc_eh -lmingwex -lmsvcrt -lkernel32 -luser32 -ladvapi32 -lntdll \
       -Wl,--end-group \
-      "$($compiler -print-file-name=crtend.o)" -o "$out/$module-$name.exe"
+      "$($compiler -print-file-name=crtend.o)" -o "$out/$module-$name.exe"; then
+      failed+=("$test")
+    fi
   done
+  if [ "''${#failed[@]}" -ne 0 ]; then
+    printf 'Failed upstream test build: %s\n' "''${failed[@]}"
+    exit 1
+  fi
   python3 - "$out" ${source} <<'PY'
   import hashlib, json, pathlib, sys
   out = pathlib.Path(sys.argv[1])
