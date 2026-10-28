@@ -34,6 +34,7 @@ in runCommand "wine-11.0-upstream-x86-tests" {
   # need not include. Load NT status definitions before suppressing the
   # duplicate SDK definitions, matching Wine's usual header order.
   cat > test-preinclude.h <<'EOF'
+  #define _CRT_NON_CONFORMING_WCSTOK
   #include <_mingw.h>
   /* Wine's quoted CRT headers use this import annotation; MinGW's corecrt
    * spells the same declaration attribute _CRTIMP. */
