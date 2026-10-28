@@ -685,11 +685,52 @@ Evidence: evidence/worker-exit-c4b7d49/vm-results/normalized/diagnostic-results/
 Archive SHA256: b6f36e29920cb76f1222fa968673c96cb6d4e7ad9ef369fee4030864b8073dca.
 Primary audit: evidence/worker-exit-c4b7d49/primary-audit.json.
 
-The pending adapter records the first requesting guest thread before returning
+The adapter in 3bdd1b6 records the first requesting guest thread before returning
 through its CPU gate. A worker or nested request runs Wine's loader/PEB lock
 and DLL shutdown sequence on that thread, with native stop-other-thread
 coordination. The top-level main invocation retains its host-return path.
-No guest NT service is added. This change has not been Windows-validated.
-The permanent fixture requires process exit 37 and a DLL process-detach
-marker, with separate worker, main and spinning-main modes. Keep the original
-control executable byte-identical for the next candidate comparison.
+No guest NT service is added.
+
+The unchanged control executable now exits 37 in native and all five Wine
+runs of both worker and main modes. Its Wine worker output includes the
+process-shutdown and host-return marker, with no surviving-main diagnostic.
+The unchanged pending thread-pool control also reaches its watchdog exit 81
+without a runner timeout in all five Wine runs. Its wait remains a failure;
+process-exit recovery does not fix the excluded batched-alert wake route.
+
+The first permanent fixture failed before its intended Wine modes because
+its DLL path was searched as guest/guest/process_exit_library32.dll. Those
+twenty Wine diagnostic/focused failures exited 71 and do not establish DLL
+shutdown behavior. Fixture-only commit 86d5938 loads the DLL by filename.
+On that candidate, all eighteen diagnostic processes pass: native plus five
+Wine runs each in worker, main and spinning-main modes. All six default
+focused worker processes also pass. Each exits 37, prints exactly one DLL
+process attach and detach in order around the exit request, and has the
+expected mode and exact request marker. All spin runs reach their phase
+before requesting exit. Wine worker/spin records include
+GUEST_EXIT code=37 process_shutdown=1 HOST_RETURNED. No process times out.
+Both direct retry suite children exit 0. Final manifest verification passes
+all 135 files, archive hashes match, and both VMs are destroyed.
+
+The broad 3bdd1b6 run passes the other twenty-five focused fixture children,
+cross 29, seven required exception cases, fifteen required corpus commands,
+32 captured-string stream hashes, both round trips and both peer suites.
+Combined with the corrected worker retry, all 26 focused fixtures have
+passing evidence for their 163 process rows. This combines two runs rather
+than claiming the first focused suite exited 0. The rebuilt runtime PE files
+have identical executable, data, import and unwind content; their changed
+bytes are only PE checksums and Nix compiler random seeds in DWARF producer
+strings. The sole fixture code change is the corrected DLL filename.
+
+The original kernel32-thread Wine run still times out at 180 seconds without
+a parent-PID completion summary. Native completes 1,041 checks with 21
+failures. The optional nested-return C++ diagnostic still crashes separately.
+The earlier rejected stage and encoded-text retry attempts are retained;
+only the successful direct PowerShell -File retry supplies fixture evidence.
+
+Broad evidence and raw audit: evidence/worker-exit-3bdd1b6/.
+Broad archive SHA256: fdb5ac64b36d2775b6122fd976ce9cb96edd5ac4693d173cdcb19ce6687c6d8c.
+Retry evidence: evidence/worker-exit-fixture-86d5938/vm-results/fixed-retry-20261028/.
+Retry archive SHA256: 6145e90da6537a8542498b6cc6c4484c397dbe6cc9c420daafd01e0e7f1ce211.
+Reproducible audits: audit-results.py and primary-audit.json in each candidate
+evidence directory. Runtime comparison: runtime-equivalence.json in the retry.
