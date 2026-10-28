@@ -59,8 +59,11 @@ in runCommand "wine-11.0-upstream-x86-tests" {
       ntdll/om ntdll/path ntdll/pipe ntdll/port ntdll/reg ntdll/rtl \
       ntdll/rtlbitmap ntdll/rtlstr ntdll/string ntdll/sync ntdll/thread \
       ntdll/threadpool ntdll/time ntdll/unwind ntdll/virtual ntdll/wow64 \
-      kernel32/codepage kernel32/environ kernel32/fiber kernel32/format_msg \
-      kernel32/heap kernel32/locale kernel32/path kernel32/sync \
+      kernel32/atom kernel32/change kernel32/codepage \
+      kernel32/debugger kernel32/directory kernel32/environ kernel32/fiber \
+      kernel32/file kernel32/format_msg kernel32/heap kernel32/loader \
+      kernel32/locale kernel32/module kernel32/path kernel32/process \
+      kernel32/profile kernel32/resource kernel32/sync kernel32/toolhelp kernel32/volume \
       kernel32/thread kernel32/time kernel32/timer kernel32/version kernel32/virtual \
       msvcrt/cpp msvcrt/data msvcrt/dir msvcrt/environ msvcrt/file msvcrt/heap \
       msvcrt/locale msvcrt/misc msvcrt/printf msvcrt/scanf msvcrt/signal \
@@ -86,6 +89,7 @@ in runCommand "wine-11.0-upstream-x86-tests" {
       "$($compiler -print-file-name=crt2.o)" "$($compiler -print-file-name=crtbegin.o)" \
       -Wl,--dynamicbase,--nxcompat,--no-insert-timestamp,--start-group \
       -lmingw32 -lgcc -lgcc_eh -lmingwex -lmsvcrt -lkernel32 -luser32 -ladvapi32 -lntdll \
+      -lpsapi -lversion -lshell32 -lole32 -luserenv \
       -Wl,--end-group \
       "$($compiler -print-file-name=crtend.o)" -o "$out/$module-$name.exe"; then
       failed+=("$test")
