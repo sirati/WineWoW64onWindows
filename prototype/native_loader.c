@@ -161,6 +161,12 @@ NTSTATUS probe_builtin_unixlib(void *module,ULONGLONG *handle)
     if(probe_socket_builtin_unixlib(name,handle))return STATUS_SUCCESS;
     if(dos->e_lfanew<sizeof(*dos)+sizeof("Wine builtin DLL")||
        memcmp(dos+1,"Wine builtin DLL",sizeof("Wine builtin DLL")))return STATUS_DLL_NOT_FOUND;
+#ifdef PROBE_TEST_NO_NATIVE_UNIXLIB
+    /* Negative-control executable only. Keep the same platform fixes and
+     * socket backend, with generic native unixlib lookup disabled. */
+    fprintf(stderr,"MISSING_NATIVE_UNIXLIB module=%s\n",name);
+    return STATUS_DLL_NOT_FOUND;
+#endif
     ANSI_STRING exp_name={(USHORT)length,(USHORT)(length+1),(char *)name};
     UNICODE_STRING nt_name={0};
     const void *funcs=NULL;

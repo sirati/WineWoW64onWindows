@@ -50,14 +50,15 @@ try {
     Copy-Item -LiteralPath "$echo/i386-windows/wine_unixlib_echo.dll" -Destination "$split/pe/i386-windows/"
     Copy-Item -LiteralPath "$echo/x86_64-native/wine_unixlib_echo.dll" -Destination "$split/native/x86_64-native/"
     Invoke-Control 'negative-hello' "$negative/wine-host.exe" '--wine-components guest/hello32.exe' $negative '' 0 '(?m)^hello32: stdout, process ID, 64-bit DLL call, memory and sleep passed\r?$' $true
-    # Inject only this byte-identical x86 control next to the old caller. Its
-    # host and every baseline file remain unchanged and manifest-verified.
+    # The control runtime uses the candidate's platform fixes, with generic
+    # unixlib lookup disabled at build time. Its manifest identifies that
+    # host explicitly; it is not an unchanged historical runtime.
     $negativeApp=Join-Path $negative 'unixlib-negative'
     New-Item -ItemType Directory -Force $negativeApp|Out-Null
     Copy-Item -LiteralPath $app -Destination $negativeApp
     Copy-Item -LiteralPath "$echo/i386-windows/wine_unixlib_echo.dll" -Destination $negativeApp
     $negativeArguments='--wine-components "'+(Join-Path $negativeApp 'wine-unixlib-echo-app.exe')+'"'
-    Invoke-Control 'old-runtime' "$negative/wine-host.exe" $negativeArguments $negative $echo 2 '(?m)^ECHO_FAILED load status=0xc0000135\r?$' $false
+    Invoke-Control 'unixlib-disabled' "$negative/wine-host.exe" $negativeArguments $negative $echo 2 '(?m)^ECHO_FAILED load status=0xc0000135\r?$' $false
     $arguments='--wine-components "'+$app+'"'
     for($i=0;$i -lt $Repeats;$i++) {
         Invoke-Control "root-$i" "$runtime/wine-host.exe" $arguments $runtime $echo 0 '(?m)^ECHO_OK calls=20\r?$' $true

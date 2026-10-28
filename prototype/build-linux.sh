@@ -177,14 +177,18 @@ for unit in file process registry security sync syscall system virtual; do
   "$cc64" "${flags[@]}" "${extra[@]}" "${inc[@]}" -Iwine-11.0-source/dlls/wow64 \
     -c "$unit_source" -o prototype/out/wine-$unit.o
 done
-"$cc64" "${flags[@]}" "${inc[@]}" prototype/host.c prototype/backend.c prototype/wine_cpu_adapter.c prototype/wine_exceptions.c prototype/wine_extended_context.c prototype/xstate.c prototype/native_io.c prototype/native_sockets.c prototype/native_socket_io.c prototype/native_threads.c prototype/native_loader.c prototype/native_debug.c prototype/native_process_params.c \
+for host_variant in normal no-unixlib;do
+host_flags=();host_name=wine-host
+if [[ "$host_variant" == no-unixlib ]];then host_flags+=( -DPROBE_TEST_NO_NATIVE_UNIXLIB );host_name=wine-host-no-unixlib;fi
+"$cc64" "${flags[@]}" "${host_flags[@]}" "${inc[@]}" prototype/host.c prototype/backend.c prototype/wine_cpu_adapter.c prototype/wine_exceptions.c prototype/wine_extended_context.c prototype/xstate.c prototype/native_io.c prototype/native_sockets.c prototype/native_socket_io.c prototype/native_threads.c prototype/native_loader.c prototype/native_debug.c prototype/native_process_params.c \
   prototype/out/wine-file.o prototype/out/wine-process.o prototype/out/wine-sync.o prototype/out/wine-virtual.o \
   prototype/out/wine-registry.o \
   prototype/out/wine-system.o prototype/out/wine-security.o \
   prototype/out/wine-close.o \
   -Wl,--gc-sections,--image-base,0x60000000 "${mitigation_flags[@]}" \
-  -Wl,--subsystem,console -Wl,--entry,probe_mainCRTStartup -nostdlib -o prototype/out/wine-host.exe \
+  -Wl,--subsystem,console -Wl,--entry,probe_mainCRTStartup -nostdlib -o "prototype/out/$host_name.exe" \
   "$crt2" "$crtbegin" "${winlibs[@]}" -lntdll -lws2_32 "$crtend"
-python3 prototype/check-native-unwind.py prototype/out/wine-host.exe
+python3 prototype/check-native-unwind.py "prototype/out/$host_name.exe"
+done
 
 echo "cross-build complete: prototype/out/wine-host.exe"
