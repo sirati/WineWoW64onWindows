@@ -48,7 +48,8 @@ foreach($row in $manifest.files) {
 }
 Write-Output "VERIFIED_CANDIDATE=$($manifest.commit) FILES=$($manifest.files.Count)"
 '''
-with zipfile.ZipFile(evidence / 'vm-test-bundle.zip', 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as bundle:
+with zipfile.ZipFile(evidence / 'vm-test-bundle.zip', 'w', zipfile.ZIP_DEFLATED, compresslevel=6,
+                     strict_timestamps=False) as bundle:
     for path, name in paths:
         bundle.write(path, name.as_posix())
     bundle.writestr('candidate-files.json', json.dumps(manifest, indent=2) + '\n')
