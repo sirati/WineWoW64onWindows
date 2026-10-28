@@ -48,6 +48,8 @@ in runCommand "wine-11.0-upstream-x86-tests" {
   #include "winbase.h"
   #include "wincon.h"
   #include "winternl.h"
+  /* Exported by msvcrt, but absent from MinGW's public stdlib header. */
+  _CRTIMP int __cdecl __getmainargs(int *,char ***,char ***,int,int *);
   EOF
   for test in ntdll/atom ntdll/change ntdll/directory ntdll/env ntdll/error \
       ntdll/exception ntdll/file ntdll/generated ntdll/info ntdll/large_int \
