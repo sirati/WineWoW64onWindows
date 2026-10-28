@@ -257,6 +257,17 @@ static void stack_free(BYTE *base)
 NTSTATUS WINAPI probe_NtSetInformationProcess(HANDLE process,PROCESSINFOCLASS class,void *buffer,ULONG length)
 {
     PROCESS_STACK_ALLOCATION_INFORMATION *alloc;
+    if(class==ProcessExecuteFlags)
+    {
+        ULONG flags;
+        /* Wine checks the permanent DEP policy before the requested flags.
+         * Our x64 native process cannot disable DEP; native Windows instead
+         * rejects this x86-only setter with STATUS_INVALID_PARAMETER. */
+        if(length!=sizeof(flags))return STATUS_INVALID_PARAMETER;
+        NTSTATUS status=NtQueryInformationProcess(process,class,&flags,sizeof(flags),NULL);
+        if(status)return status;
+        if(flags&MEM_EXECUTE_OPTION_PERMANENT)return STATUS_ACCESS_DENIED;
+    }
     if(class!=ProcessThreadStackAllocation||
        (process!=GetCurrentProcess()&&GetProcessId(process)!=GetCurrentProcessId()))
         return NtSetInformationProcess(process,class,buffer,length);

@@ -200,7 +200,17 @@ NTSTATUS WINAPI probe_RtlWow64GetThreadContext(HANDLE thread,WOW64_CONTEXT *cont
 NTSTATUS WINAPI probe_RtlWow64SetThreadContext(HANDLE thread,const WOW64_CONTEXT *context)
 { return thread_context(thread,(I386_CONTEXT *)context,TRUE); }
 static NTSTATUS WINAPI get_context(HANDLE thread,HANDLE process,void *unused,void *context)
-{ (void)process;(void)unused;return probe_RtlWow64GetThreadContext(thread,context); }
+{
+    (void)process;(void)unused;
+    /* The CPU backend has already captured the interrupted guest registers.
+     * In particular, native NtGetContextThread(self) no longer reports the
+     * Dr6 trap status from the exception's CONTEXT. Wine's exception frame
+     * must use that saved CPU area, just like its Unix signal backend. Public
+     * guest NtGetContextThread calls still query the live native debug state. */
+    if(thread==GetCurrentThread())
+        return get_thread_wow64_context(thread,context,sizeof(I386_CONTEXT));
+    return probe_RtlWow64GetThreadContext(thread,context);
+}
 static NTSTATUS WINAPI set_context(HANDLE thread,HANDLE process,void *unused,void *context)
 { (void)process;(void)unused;return probe_RtlWow64SetThreadContext(thread,context); }
 static NTSTATUS (WINAPI *pBTCpuGetContext)(HANDLE,HANDLE,void *,void *)=get_context;

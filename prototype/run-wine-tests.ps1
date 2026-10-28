@@ -3,7 +3,8 @@ param(
     [string[]]$Tests=@('ntdll-rtlbitmap','ntdll-large_int','ntdll-error','ntdll-rtlstr','ntdll-string','ntdll-time','ntdll-env','msvcrt-cpp'),
     [string]$UpstreamRoot='',
     [int]$TimeoutSeconds=60,
-    [string]$ReportName='upstream-wine-tests'
+    [string]$ReportName='upstream-wine-tests',
+    [switch]$Trace
 )
 $ErrorActionPreference='Stop'
 if(-not $UpstreamRoot){$UpstreamRoot=Join-Path $PSScriptRoot 'out/upstream-tests'}
@@ -34,6 +35,7 @@ foreach($name in $Tests) {
         $p.StartInfo.EnvironmentVariables['WINETEST_DEBUG']='1'
         $p.StartInfo.EnvironmentVariables.Remove('WINE_NATIVE_BRIDGE')
         $p.StartInfo.EnvironmentVariables.Remove('WINE_PROBE_TRACE')
+        if($Trace -and -not $native){$p.StartInfo.EnvironmentVariables['WINE_PROBE_TRACE']='1'}
         foreach($variable in @('WINE_TEST_OCCUPY_BOOTSTRAP_IMAGE','WINE_TEST_OCCUPY_APPLICATION_IMAGE','WINE_TEST_OCCUPY_APPLICATION_CANONICAL_IMAGE','WINE_TEST_OCCUPY_GATE_BASE')) {
             $p.StartInfo.EnvironmentVariables.Remove($variable)
         }
@@ -59,7 +61,7 @@ foreach($name in $Tests) {
         }
         $loaded=$native -or $stdout -match 'WINE_LOAD_APPLICATION status=00000000'
         $completed=-not $timeout -and $summary.Success -and $loaded
-        $row=[pscustomobject]@{name=$name;native=$native;pid=$p.Id;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;workingDirectory=$p.StartInfo.WorkingDirectory;fixture=$executable;fixtureSHA256=$test.sha256;platform=$p.StartInfo.EnvironmentVariables['WINETEST_PLATFORM'];exitCode=$p.ExitCode;timedOut=$timeout;timeoutSeconds=$TimeoutSeconds;wineLoadMarker=$loaded;completed=$completed;passed=($completed -and $p.ExitCode -eq 0 -and $counts.failures -eq 0);counts=$counts;unsupportedServices=@([regex]::Matches($stderr,'UNIMPLEMENTED NT service [0-9a-fA-F]+')|ForEach-Object {$_.Value}|Sort-Object -Unique);stdoutPath="$mode-$name.stdout.txt";stderrPath="$mode-$name.stderr.txt"}
+        $row=[pscustomobject]@{name=$name;native=$native;pid=$p.Id;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;workingDirectory=$p.StartInfo.WorkingDirectory;fixture=$executable;fixtureSHA256=$test.sha256;platform=$p.StartInfo.EnvironmentVariables['WINETEST_PLATFORM'];trace=[string]$p.StartInfo.EnvironmentVariables['WINE_PROBE_TRACE'];exitCode=$p.ExitCode;timedOut=$timeout;timeoutSeconds=$TimeoutSeconds;wineLoadMarker=$loaded;completed=$completed;passed=($completed -and $p.ExitCode -eq 0 -and $counts.failures -eq 0);counts=$counts;unsupportedServices=@([regex]::Matches($stderr,'UNIMPLEMENTED NT service [0-9a-fA-F]+')|ForEach-Object {$_.Value}|Sort-Object -Unique);stdoutPath="$mode-$name.stdout.txt";stderrPath="$mode-$name.stderr.txt"}
         [IO.File]::WriteAllText("$results/$mode-$name.stdout.txt",$stdout)
         [IO.File]::WriteAllText("$results/$mode-$name.stderr.txt",$stderr)
         $rows+=$row

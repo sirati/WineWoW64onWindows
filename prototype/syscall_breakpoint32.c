@@ -2,9 +2,11 @@
  * creation to check that a trapped TLS clear did not abandon the registry. */
 #include "test_support.h"
 static volatile LONG delivered;
+static volatile DWORD guest_dr6;
 static LONG CALLBACK on_trap(EXCEPTION_POINTERS *exception)
 {
     if(exception->ExceptionRecord->ExceptionCode!=(DWORD)0x80000004)return EXCEPTION_CONTINUE_SEARCH;
+    if(!delivered)guest_dr6=exception->ContextRecord->Dr6;
     ++delivered;
     return EXCEPTION_CONTINUE_EXECUTION;
 }
@@ -29,9 +31,11 @@ void WINAPI app_entry(void)
     context.Dr7=0;
     if(!SetThreadContext(GetCurrentThread(),&context))ExitProcess(74);
     MESSAGE("guest.traps=");message_hex(guest_traps);
+    MESSAGE("guest.dr6=");message_hex(guest_dr6);
     MESSAGE("syscall.traps=");message_hex(syscall_traps);
     MESSAGE("syscall.status=");message_hex(status);
     if(guest_traps!=1||syscall_traps||status||*slot)ExitProcess(75);
+    if(!(guest_dr6&1))ExitProcess(78);
     if(!RemoveVectoredExceptionHandler(handler)||!TlsFree(index))ExitProcess(76);
     MESSAGE("phase=before-thread-create\r\n");
     HANDLE thread=CreateThread(NULL,0,worker,NULL,0,NULL);DWORD code;
