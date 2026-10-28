@@ -61,7 +61,7 @@ Expanded suites and next fixes
 | Virtual allocation zero-bits/size assertions | Native x86 and x64 return the same STATUS_CONFLICTING_ADDRESSES for ZeroBits=20 and size 0x10000 after zero-length decommit. The test permits these known Windows variations only outside Wine. | Native behavior confirmed; raw assertions retained |
 | Full fiber suite | Port completes 32,956 checks with only two subprocess-related failures. Native reports 4,115 private FLS-layout assertions. The focused survivor fixture crashes natively and passes in Wine; preserve that qualification. | Completed in-scope suite cases |
 | Full exception suite | Guest alignment faults recurse in native Windows ntdll while it constructs the exception frame, before the VEH is called. A later handler cannot fix this boundary. | High |
-| Full kernel32 thread suite | Reserved TLS and extreme priorities are fixed. The next crash is a NULL GROUP_AFFINITY32 argument in the original thunk. Integrate Wine's original protected syscall wrapper. | Medium; wrapper validation pending |
+| Full kernel32 thread suite | Protected conversion-fault recovery passes focused Windows controls. The full suite reaches later context, selector and affinity assertions, then times out without its parent summary. A group-affinity creation conversion is cross-built; its Windows validation is pending. | Medium; supported failures remain |
 | Timezone names | Both native x86 and x64 return the same direct names as the port. The test accepts these on Windows through broken(), but rejects them on Wine. | Native behavior confirmed; raw assertions retained |
 | Hypervisor shared page | Convert the live native mapping's pointer through Wine's existing thunk. The time suite now completes 10,667 checks instead of crashing. | Completed query conversion |
 | Missing sync/thread/process NT services | SignalObjectAndWait and subprocess creation have dependent failures. Only causally established service failures are excluded. | Excluded where established |
@@ -266,7 +266,7 @@ async/event/pipe controls pass. Original fiber and heap outcomes remain exit
 not be described as passing.
 Evidence: 2026-10-28-wine-boundaries-priority-luna/evidence/vm-results/
 
-Protected syscall integration, validation pending
+Protected syscall integration
 
 The later kernel32 thread crash reads NULL while Wine converts a
 GROUP_AFFINITY32 for NtSetInformationThread. The test deliberately supplies
@@ -283,12 +283,12 @@ COFF .pdata references. The cross build therefore selects only the original
 supported thunk definitions, preserving helpers, bodies and upstream line
 numbers. It does not introduce stubs or additional guest services. Static PE
 inspection verifies unwind ranges for the protected wrapper and the two
-focused fault paths. VM validation is still required.
+focused fault paths. The Windows results below establish focused recovery.
 
 Next in-scope work
 
-1. Validate protected syscall recovery, then rerun the complete upstream
-   kernel32 thread suite to expose assertions after the former crash. The
+1. Fix the supported thread failures exposed after protected syscall recovery,
+   then rerun the complete upstream kernel32 thread suite. The
    focused thunk_fault32 fixture now uses aligned PAGE_NOACCESS storage for
    its invalid filename. This separates access validation from the native
    string-alignment policy. It retains repeated conversion failures followed
@@ -300,7 +300,8 @@ Next in-scope work
    limit of 0xfff7ffff. The memory_status32 fixture prints both APIs' physical
    and pagefile values before and after the system-memory cache expires. It
    compares available pagefile values with a 16 MiB allowance for activity
-   between queries. It has not run on Windows yet. Preserve the legacy
+   between queries. Its 8 GiB Windows runs pass but bypass the failing clamp
+   path, as described below. Preserve the legacy
    workaround until a candidate can be checked against native and old-binary
    controls; no memory compatibility patch is included in this follow-up.
 3. Repair alignment-exception entry before the VEH, then return to CET.
@@ -316,16 +317,76 @@ The Nix runtime/tests build and flake evaluation pass. The host's .text is
 byte-identical to the frozen c2fb600 candidate; only a debug section differs.
 These are metadata/build checks, not Windows execution results.
 
-VM infrastructure blocker, 2026-10-28
+Verified protected syscall recovery, 0a5ba02
 
-The original 127-file c2fb600 candidate archive passes independent host-side
-hash verification. Luna has not executed it. T3 rejects an attempt to select
-the registered WineWoW64onWindows project for local delegation:
-"A local task runs in this thread's project. Omit target.projectId, or pass
-target.environmentId to run it in that environment's project."
-The parent thread belongs to "No project", rooted at /home/sirati/.t3/scratch,
-which is not the Git checkout. Its earlier worktree provisioning failed there.
-Registering the real repository project and its pre-start input-copy script
-does not rebind this thread. No fallback agent or primary-run Windows test
-has been substituted. Protected-dispatch and follow-up VM validation remain
-pending until delegation can start in the repository project.
+Candidate: 0a5ba02f58cf915fae71ebd50cdd7d49548c73cf, 128 manifest files.
+Host SHA256: 05398F377A64F1FB677FE85D028D44E71661D8637B05F937EF2B95A5008CBF9F.
+Luna 6 verified the manifest inside a fresh Windows 11 VM. Primary inspection
+accepts native plus ten Wine thunk_fault32 runs, with exact success markers,
+the intended actual executable/arguments, numeric exits 0, no timeouts and
+Wine application-load markers. Repeated NULL group-affinity and inaccessible
+filename conversions recover on the main and worker threads.
+
+The corrected prior-runtime control first verifies the 126-file 0ea4f04
+manifest and runs its original hello32 from the runtime working directory.
+Only the new thunk_fault32.exe is then injected. Its SHA256 matches
+231E4C73CE155F18E98FF0E85DE188DFC53EB6B0AAD185C230EDDC5A1CC415CE;
+the old host remains
+6EA0C332DBC04AFF4FD07C828167A3BB30A51A3DF68E4C0B2EF0D455039714AE.
+The intended fixture loads through Wine, then the old process exits with
+0xc0000005 and no timeout. The earlier old-runtime attempt ran from the
+wrong directory and failed before loading ntdll; it is rejected as a control.
+
+Process view, LAA process view, thread priority and TLS slots each pass native
+plus five Wine runs with complete launch metadata. The memory-status fixture
+also passes those six runs on an 8 GiB VM. All eighteen samples have extended
+available pagefile above MAXDWORD. The legacy value saturates to MAXDWORD;
+adding it to the MAXLONG physical value wraps below 2 GiB and skips Wine's
+Photoshop clamp. This does not fix or exercise the earlier low-memory failure.
+The unchanged heap suite completes 278,583 checks, exit 22, with only its
+twenty-two causally established subprocess assertions on this VM. Native
+heap passes 281,468 checks. Keep the low-memory compatibility issue open.
+
+The seven previously passing default upstream suites complete again. Time
+completes 10,667 checks with 54 Wine failures and five native failures. Fiber
+completes 32,956 Wine checks, exit 2, with its two subprocess assertions;
+native retains 4,115 private FLS-layout failures. The full thread suite
+times out after 180 seconds with no parent summary. Native completes 1,041
+checks with 21 selector/context assertions. Wine's raw assertions after the
+former crash include terminated-thread context errors, selector-base identity,
+activation-context creation and group-affinity thread creation. These need
+individual diagnosis; nearby unsupported-service messages are insufficient.
+The debugger also records the later wait and native stack addresses, returning
+98 from its own 15-second timeout. This does not complete the thread suite.
+
+Fifteen additional focused fixtures retain 87 passing individual process
+records, including the issuer-exit --spin arguments and mode marker. The
+outer helper failed during its final JSON serialization and lost all fifteen
+suite-child numeric exits. Those exits cannot be inferred from the passing
+fixture rows, so the full suite evidence remains incomplete. The new
+run-focused-tests.ps1 writes each numeric exit and separate primitive-only
+record immediately. Cross, exception, corpus and peer runners now also retain
+the actual executable/arguments; the corpus records captured-stream hashes.
+These helper changes still require Windows execution.
+
+Evidence outside Git:
+/home/sirati/.t3/worktrees/WineWoW64onWindows/t3-17fec8c5/evidence/vm-results/
+/home/sirati/.t3/worktrees/WineWoW64onWindows/t3-afe442ed/evidence/vm-results/
+Both VMs were destroyed after evidence retrieval. The previous T3 project
+binding blocker is resolved. Use the registered repository project and
+primary-prepared frozen inputs. Guest access succeeded with explicit argv,
+forward-slash Windows paths and encoded PowerShell on a 4-vCPU, 8 GiB VM.
+Earlier malformed shell paths and share probes do not establish a VM defect.
+
+Thread group-affinity conversion, Windows validation pending
+
+The original ps_attributes_32to64 helper forwards a 12-byte GROUP_AFFINITY32
+to native NtCreateThreadEx, which expects a 16-byte GROUP_AFFINITY. The
+supplemental thread_affinity32 fixture passes natively, then fails all five
+0a5ba02 Wine runs with exit 74 and ERROR_INVALID_PARAMETER after successful
+Wine loading. Its hash and unchanged candidate host hash are recorded.
+The small follow-up adds this conversion beside Wine's existing process
+attribute conversions, with temporary storage owned by the protected syscall
+frame. It preserves Wine's thread/loader algorithms and adds no NT service.
+The fixture covers full and single-CPU masks and rejects an invalid CPU.
+The Nix cross build passes; the conversion fix has not yet run on Windows.

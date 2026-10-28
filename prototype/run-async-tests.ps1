@@ -27,13 +27,15 @@ foreach($native in @($true,$false)) {
             $peerError=$peer.StandardError.ReadToEndAsync()
             $ready=$peer.StandardOutput.ReadLineAsync()
             if(-not $ready.Wait(3000) -or $ready.Result -ne 'peer ready'){throw 'I/O peer did not initialize'}
+            $peerOutput=$peer.StandardOutput.ReadToEndAsync()
             $guest=if($native){New-Process "./$guestExe" ''}else{New-Process './wine-host.exe' "--wine-components $guestExe"}
             $out=$guest.StandardOutput.ReadToEndAsync();$err=$guest.StandardError.ReadToEndAsync()
             $timeout=-not $guest.WaitForExit(10000)
             if($timeout){$guest.Kill();$guest.WaitForExit()}
             $peerTimeout=-not $peer.WaitForExit(3000)
             if($peerTimeout){$peer.Kill();$peer.WaitForExit()}
-            $rows+=[pscustomobject]@{probe=$guestExe;peerArguments=$peerArguments;native=$native;iteration=$i;exitCode=$guest.ExitCode;peerExitCode=$peer.ExitCode;timedOut=($timeout -or $peerTimeout);passed=(-not $timeout -and -not $peerTimeout -and $guest.ExitCode -eq 0 -and $peer.ExitCode -eq 0 -and $out.Result -match $expectedMessage);stdout=$out.Result;stderr=$err.Result;peerStderr=$peerError.Result}
+            $loaderMatches=$native -or $out.Result -match 'WINE_LOAD_APPLICATION status=00000000'
+            $rows+=[pscustomobject]@{probe=$guestExe;pid=$guest.Id;program=$guest.StartInfo.FileName;arguments=$guest.StartInfo.Arguments;workingDirectory=$guest.StartInfo.WorkingDirectory;peerPid=$peer.Id;peerProgram=$peer.StartInfo.FileName;peerArguments=$peer.StartInfo.Arguments;native=$native;iteration=$i;exitCode=$guest.ExitCode;peerExitCode=$peer.ExitCode;timedOut=($timeout -or $peerTimeout);guestTimedOut=$timeout;peerTimedOut=$peerTimeout;passed=(-not $timeout -and -not $peerTimeout -and $guest.ExitCode -eq 0 -and $peer.ExitCode -eq 0 -and $out.Result -match $expectedMessage -and $loaderMatches);stdout=$out.Result;stderr=$err.Result;peerStdout=($ready.Result+"`r`n"+$peerOutput.Result);peerStderr=$peerError.Result}
         } finally {
             foreach($p in @($guest,$peer)){if($p){if(-not $p.HasExited){$p.Kill();$p.WaitForExit()};$p.Dispose()}}
         }

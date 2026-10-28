@@ -11,7 +11,7 @@ $p.StartInfo.UseShellExecute=$false;$p.StartInfo.RedirectStandardOutput=$true;$p
 [void]$p.Start();$out=$p.StandardOutput.ReadToEndAsync();$err=$p.StandardError.ReadToEndAsync()
 $timeout=-not $p.WaitForExit(10000)
 if($timeout){$p.Kill();$p.WaitForExit()}
-$row=[pscustomobject]@{name=$name;exitCode=$p.ExitCode;timedOut=$timeout;required=$required;passed=(-not $timeout -and $p.ExitCode -eq 0 -and $out.Result -match 'passed');stdout=$out.Result;stderr=$err.Result}
+$row=[pscustomobject]@{name=$name;pid=$p.Id;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;workingDirectory=$p.StartInfo.WorkingDirectory;exitCode=$p.ExitCode;timedOut=$timeout;required=$required;passed=(-not $timeout -and $p.ExitCode -eq 0 -and $out.Result -match 'passed');stdout=$out.Result;stderr=$err.Result}
 $p.Dispose();return $row
 }
 $rows=@()

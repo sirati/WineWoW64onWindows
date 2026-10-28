@@ -17,7 +17,11 @@ function Run-One($name,$arguments,$expected=0,$required=$true,$program='./wine-h
     $timedOut=-not $p.WaitForExit(10000)
     if($timedOut){$p.Kill();$p.WaitForExit()}
     $outputMatched=($pattern -eq '' -or $out.Result -match $pattern)
-    $row=[pscustomobject]@{name=$name;exitCode=$p.ExitCode;expectedExit=$expected;required=$required;outputPattern=$pattern;outputMatched=$outputMatched;passed=(-not $timedOut -and $p.ExitCode -eq $expected -and $outputMatched);timedOut=$timedOut;stdout=$out.Result;stderr=$err.Result}
+    $sha256=[Security.Cryptography.SHA256]::Create()
+    $stdoutHash=([BitConverter]::ToString($sha256.ComputeHash([Text.Encoding]::UTF8.GetBytes($out.Result)))).Replace('-','')
+    $stderrHash=([BitConverter]::ToString($sha256.ComputeHash([Text.Encoding]::UTF8.GetBytes($err.Result)))).Replace('-','')
+    $sha256.Dispose()
+    $row=[pscustomobject]@{name=$name;pid=$p.Id;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;workingDirectory=$p.StartInfo.WorkingDirectory;exitCode=$p.ExitCode;expectedExit=$expected;required=$required;outputPattern=$pattern;outputMatched=$outputMatched;passed=(-not $timedOut -and $p.ExitCode -eq $expected -and $outputMatched);timedOut=$timedOut;stdoutUtf8SHA256=$stdoutHash;stderrUtf8SHA256=$stderrHash;stdout=$out.Result;stderr=$err.Result}
     $out.Result|Set-Content "results/unmodified/$name.stdout.txt";$err.Result|Set-Content "results/unmodified/$name.stderr.txt"
     $p.Dispose();return $row
 }

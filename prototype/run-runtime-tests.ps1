@@ -31,7 +31,7 @@ foreach($program in $Programs) {
             }
             $loaderMatches=$native -or ($out.Result -match 'WINE_LOAD_APPLICATION status=00000000' -and
                                        $out.Result -match 'GUEST_EXIT code=0 .*HOST_RETURNED')
-            $rows+=[pscustomobject]@{probe=$program;native=$native;iteration=$i;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;exitCode=$p.ExitCode;timedOut=$timeout;passed=(-not $timeout -and $p.ExitCode -eq 0 -and $out.Result -match $pattern -and $modeMatches -and $loaderMatches);stdout=$out.Result;stderr=$err.Result}
+            $rows+=[pscustomobject]@{probe=$program;native=$native;iteration=$i;pid=$p.Id;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;workingDirectory=$p.StartInfo.WorkingDirectory;exitCode=$p.ExitCode;timedOut=$timeout;passed=(-not $timeout -and $p.ExitCode -eq 0 -and $out.Result -match $pattern -and $modeMatches -and $loaderMatches);stdout=$out.Result;stderr=$err.Result}
             $p.Dispose()
             if($StopOnFailure -and -not $rows[-1].passed){break}
         }

@@ -1,0 +1,26 @@
+Convert the existing thread group-affinity attribute with Wine's other
+32/64-bit process attributes. Native Windows expects a 16-byte GROUP_AFFINITY;
+the x86 caller supplies its 12-byte form. Keep the native thread backend and
+Wine's original attribute-list and thread-creation algorithms.
+
+--- a/dlls/wow64/process.c
++++ b/dlls/wow64/process.c
+@@ -184,6 +184,18 @@
+                         LongToHandle( ((LONG *)ULongToPtr(attr32->Attributes[i].Value))[j] );
+             }
+             break;
++        case PS_ATTRIBUTE_GROUP_AFFINITY:
++            {
++                GROUP_AFFINITY32 *group32 = ret->Attributes[i].ValuePtr;
++                GROUP_AFFINITY *group = Wow64AllocateTemp( sizeof(*group) );
++
++                memset( group, 0, sizeof(*group) );
++                group->Mask = group32->Mask;
++                group->Group = group32->Group;
++                ret->Attributes[i].Size = sizeof(*group);
++                ret->Attributes[i].ValuePtr = group;
++            }
++            break;
+         case PS_ATTRIBUTE_PARENT_PROCESS:
+         case PS_ATTRIBUTE_DEBUG_PORT:
+         case PS_ATTRIBUTE_TOKEN:

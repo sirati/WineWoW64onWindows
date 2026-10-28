@@ -15,7 +15,7 @@ function Run-One($name,$arguments,$expected=0,$diagnostic=$false,$program='./win
     $out=$p.StandardOutput.ReadToEndAsync();$err=$p.StandardError.ReadToEndAsync()
     $timedOut=-not $p.WaitForExit(10000)
     if($timedOut){$p.Kill();$p.WaitForExit()}
-    $row=[pscustomobject]@{name=$name;exitCode=$p.ExitCode;expectedExit=$expected;diagnostic=$diagnostic;passed=(-not $timedOut -and $p.ExitCode -eq $expected);timedOut=$timedOut;stdout=$out.Result;stderr=$err.Result}
+    $row=[pscustomobject]@{name=$name;pid=$p.Id;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;workingDirectory=$p.StartInfo.WorkingDirectory;exitCode=$p.ExitCode;expectedExit=$expected;diagnostic=$diagnostic;passed=(-not $timedOut -and $p.ExitCode -eq $expected);timedOut=$timedOut;stdout=$out.Result;stderr=$err.Result}
     $out.Result|Set-Content "results/$name.stdout.txt";$err.Result|Set-Content "results/$name.stderr.txt"
     $p.Dispose();return $row
 }
