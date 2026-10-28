@@ -582,10 +582,52 @@ The next candidate keeps native descriptor validation and attributes, then
 substitutes only the guest FS base for a registered guest thread. It maps
 Wine's EOF query to native FileStandardInformation and returns the eight-byte
 EOF value through Wine's original IO_STATUS_BLOCK conversion. Other file
-information classes retain their native path. Windows validation is pending.
+information classes retain their native path. Windows results follow below.
 
 Evidence: evidence/supported-thread-cd243aa/vm-results/normalized/.
 Archive SHA256: 3de0a3a7f955d180a14b20068e083e51aaa4b1a6a0cf264d1aa3968a4c544fb3.
 Primary audit: evidence/supported-thread-cd243aa/primary-audit.json.
 The direct suite exits 1, no process times out, the 131-file manifest verifies
 before and after, and the VM is destroyed after evidence retrieval.
+
+Verified selector and manifest queries, c4b7d49
+
+Candidate c4b7d491c44732c5d9a6067545d2bc718b277f1e passes all twelve
+supplemental controls. Their executable hashes are identical to the two
+native passes and ten prior-runtime Wine failures. Each Wine selector run
+now returns the expected guest TEB base for all five FS queries, with CS/DS
+and invalid-selector controls preserved. Each Wine activation run returns
+EOF lengths 0xb9 and 0x13b, IO_STATUS_BLOCK status 0 and Information 8;
+both simple and dependent public activation contexts succeed.
+
+The permanent fixtures also pass native plus five Wine runs each. Their
+EOF short-buffer and invalid-handle cases return STATUS_INFO_LENGTH_MISMATCH
+and STATUS_INVALID_HANDLE without overwriting the output sentinel. All
+twenty-five direct focused suite children exit 0, with 157 fully identified
+passing processes. Cross has 29 rows with no unexpected failures, seven
+required exception cases pass, fifteen required corpus commands pass with
+32 captured-string hashes and both round trips, and both peer suites pass.
+The optional nested-return C++ diagnostic retains its known access violation.
+
+The full original thread suite still times out, now after 180 seconds and
+without a parent summary. Native completes 1,041 checks with 21 failures.
+Wine's raw assertion failures are at :124/:126 and :343 through :415. The
+former context :1192/:1200, selector :1282 and activation :2133 failures are
+absent in this run. Focused controls establish the fixes; the missing parent
+summary prevents accepting the whole suite. Nearby service logs do not prove
+the timeout's cause or establish the outcome of unreported later assertions.
+
+The primary independently audits all launches, arguments, markers, raw
+streams, process/suite exits, report hashes and the retrieved archive. The
+first staging attempt's in-page I/O error is retained; its retry verifies
+all 133 candidate files before testing. A malformed PowerShell exception
+launch ran no fixture; a corrected direct launch exits 0 with all required
+records. Final verification confirms all 133 files and both control hashes
+remain unchanged. The VM is destroyed. Nix runtime/tests build and flake
+check --no-build pass.
+
+Bundle SHA256: 8d5b668235de243f7502a0eaf9801a67aa04aeb35a99f92212d79d3aea3bfa39.
+Host SHA256: 07C3F2793C764EEEF41CEC84E6631D1B05DB8160AB64CA8224D66C10B5B7C5B2.
+Evidence: evidence/supported-thread-c4b7d49/vm-results/guest-results/.
+Archive SHA256: 9b8f1a65a663c817531e701914e16a3481fe518bd6e4bc6d9cacda9ed99fe934.
+Reproducible primary audit: evidence/supported-thread-c4b7d49/audit-results.py.
