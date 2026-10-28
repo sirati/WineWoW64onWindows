@@ -66,12 +66,18 @@ in runCommand "wine-11.0-upstream-x86-tests" {
       msvcrt/string msvcrt/time; do
     module="''${test%/*}"
     name="''${test#*/}"
+    crt_headers=(-iquote source/include/msvcrt)
+    # The CRT tests use private Wine CRT types and headers absent from the
+    # MinGW SDK. Keep their complete header family together, targeting msvcrt.
+    if [ "$module" = msvcrt ]; then
+      crt_headers=(-I source/include/msvcrt -D_MSVCR_VER=0)
+    fi
     resources=()
     if [ "$module" = kernel32 ]; then resources+=(kernel32-res.o); fi
     if [ "$module" = ntdll ]; then resources+=(ntdll-res.o); fi
     printf 'Compiling upstream test %s\n' "$test"
     if ! "$compiler" -O2 -g -fno-builtin -D__USE_MINGW_ANSI_STDIO=0 -DSTANDALONE -D__WINE_PE_BUILD \
-      -D__WINESRC__ -I source/include -iquote source/include/msvcrt \
+      -D__WINESRC__ -I source/include "''${crt_headers[@]}" \
       -include ./test-preinclude.h \
       -nostdlib "source/dlls/$module/tests/$name.c" debug.o "''${resources[@]}" \
       "$($compiler -print-file-name=crt2.o)" "$($compiler -print-file-name=crtbegin.o)" \
