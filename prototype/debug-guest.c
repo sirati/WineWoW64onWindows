@@ -5,6 +5,35 @@
 #include <windows.h>
 #include <tlhelp32.h>
 #include <dbghelp.h>
+struct debug_process {
+    struct debug_process *next;
+    DWORD pid;
+    BOOL initial_breakpoint,initial_wow_breakpoint;
+};
+static struct debug_process *debug_processes;
+static BOOL initial_breakpoint(DWORD pid,const EXCEPTION_DEBUG_INFO *exception)
+{
+    if(!exception->dwFirstChance)return FALSE;
+    for(struct debug_process *p=debug_processes;p;p=p->next)if(p->pid==pid)
+    {
+        BOOL *seen=NULL;
+        if(exception->ExceptionRecord.ExceptionCode==EXCEPTION_BREAKPOINT)seen=&p->initial_breakpoint;
+        else if(exception->ExceptionRecord.ExceptionCode==0x4000001f)seen=&p->initial_wow_breakpoint;
+        if(!seen||*seen)return FALSE;
+        *seen=TRUE;return TRUE;
+    }
+    return FALSE;
+}
+static void forget_debug_process(DWORD pid)
+{
+    struct debug_process **entry=&debug_processes;
+    while(*entry)
+    {
+        struct debug_process *p=*entry;
+        if(p->pid==pid){*entry=p->next;free(p);return;}
+        entry=&p->next;
+    }
+}
 static void dump_threads(HANDLE process,DWORD pid)
 {
     HANDLE snapshot=CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD,0);
@@ -106,10 +135,9 @@ int main(void)
         if(event.dwDebugEventCode==EXCEPTION_DEBUG_EVENT)
         {
             EXCEPTION_DEBUG_INFO *ex=&event.u.Exception;
-            /* Windows also reports an initial compatibility-mode loader
-             * breakpoint as STATUS_WX86_BREAKPOINT. */
-            if(ex->ExceptionRecord.ExceptionCode!=EXCEPTION_BREAKPOINT&&
-               ex->ExceptionRecord.ExceptionCode!=0x4000001f)
+            /* Continue only the initial loader notifications. Later guest
+             * breakpoints belong to the application and its SEH handlers. */
+            if(!initial_breakpoint(event.dwProcessId,ex))
             {
                 disposition=DBG_EXCEPTION_NOT_HANDLED;
                 HANDLE thread=OpenThread(THREAD_GET_CONTEXT|THREAD_QUERY_INFORMATION,FALSE,event.dwThreadId);
@@ -137,6 +165,12 @@ int main(void)
         }
         if(event.dwDebugEventCode==CREATE_PROCESS_DEBUG_EVENT)
         {
+            struct debug_process *p=calloc(1,sizeof(*p));
+            if(!p){TerminateProcess(pi.hProcess,83);return 83;}
+            p->pid=event.dwProcessId;p->next=debug_processes;debug_processes=p;
+            BOOL wow64=FALSE;
+            if(IsWow64Process(event.u.CreateProcessInfo.hProcess,&wow64)&&!wow64)
+                p->initial_wow_breakpoint=TRUE;
             char path[1024]="?";
             HANDLE file=event.u.CreateProcessInfo.hFile;
             if(file)GetFinalPathNameByHandleA(file,path,sizeof(path),0);
@@ -164,6 +198,7 @@ int main(void)
         if(event.dwDebugEventCode==LOAD_DLL_DEBUG_EVENT&&event.u.LoadDll.hFile)CloseHandle(event.u.LoadDll.hFile);
         if(event.dwDebugEventCode==EXIT_PROCESS_DEBUG_EVENT)
         {
+            forget_debug_process(event.dwProcessId);
             DWORD code=event.u.ExitProcess.dwExitCode;fprintf(stderr,"DEBUG_EXIT pid=%lu code=%lu\n",event.dwProcessId,code);
             if(event.dwProcessId==pi.dwProcessId)
             { ContinueDebugEvent(event.dwProcessId,event.dwThreadId,disposition);CloseHandle(pi.hThread);CloseHandle(pi.hProcess);return code; }
