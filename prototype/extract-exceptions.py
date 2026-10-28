@@ -28,6 +28,13 @@ start=sys.index('#ifdef __aarch64__',sys.index(' *           wow64_syscall\n'))
 end=sys.index('\n#endif',start)+len('\n#endif')
 Path('prototype/out/wine-protected-syscall.inc').write_text(fn(sys,'call_raise_user_exception_dispatcher')+'\n\n'+sys[start:end]+'\n')
 signal=(root/'ntdll/unix/signal_x86_64.c').read_text()
+privileged=fn(signal,'is_privileged_instr')
+# Native exception records do not expose the CPU error code used by Wine to
+# exclude IDT faults. Preserve their access-violation classification here.
+assert privileged.count('    case 0xcd: /* int $xx */')==1, 'Wine interrupt decoder changed'
+privileged=privileged.replace('    case 0xcd: /* int $xx */',
+                              '    case 0xcd: /* native IDT fault */ return 0;\n')
+Path('prototype/out/wine-privileged-instruction.inc').write_text(privileged+'\n')
 system=(root/'ntdll/unix/system.c').read_text()
 Path('prototype/out/wine-xstate.inc').write_text('\n\n'.join(fn(system,n) for n in ['next_xstate_offset','xstate_get_size','copy_xstate'])+'\n')
 virtual=(root/'ntdll/unix/virtual.c').read_text()

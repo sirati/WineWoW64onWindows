@@ -322,6 +322,13 @@ void probe_exception_init(void *dispatcher,void *raise_dispatcher,WORD ss)
     ss32_sel=ds64_sel=ss;init_block.pKiUserExceptionDispatcher=(ULONG_PTR)dispatcher;
     pKiRaiseUserExceptionDispatcher=raise_dispatcher;
 }
+static SIZE_T virtual_uninterrupted_read_memory(const void *address,void *buffer,SIZE_T size)
+{
+    SIZE_T read=0;
+    NtReadVirtualMemory(GetCurrentProcess(),address,buffer,size,&read);
+    return read;
+}
+#include "out/wine-privileged-instruction.inc"
 BOOL probe_handle_syscall_trap(EXCEPTION_POINTERS *p)
 {
     extern BOOL probe_inside_syscall(void);
@@ -376,6 +383,12 @@ BOOL probe_dispatch_guest_exception(EXCEPTION_POINTERS *p)
     EXCEPTION_RECORD record=*p->ExceptionRecord;
     if(record.ExceptionCode==STATUS_WX86_SINGLE_STEP)record.ExceptionCode=STATUS_SINGLE_STEP;
     else if(record.ExceptionCode==STATUS_WX86_BREAKPOINT)record.ExceptionCode=STATUS_BREAKPOINT;
+    else if(record.ExceptionCode==STATUS_ACCESS_VIOLATION&&record.NumberParameters==2&&
+            !record.ExceptionInformation[0]&&(ULONG)record.ExceptionInformation[1]==MAXDWORD)
+    {
+        DWORD status=is_privileged_instr(saved);
+        if(status){record.ExceptionCode=status;record.NumberParameters=0;}
+    }
     EXCEPTION_POINTERS stable={&record,saved};
     Wow64PassExceptionToGuest(&stable);
     /* The Windows VEH context may point at a native CONTEXT_EX whose compact
