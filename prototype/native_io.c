@@ -190,12 +190,22 @@ NTSTATUS WINAPI probe_NtWaitForMultipleObjects(ULONG count,const HANDLE *handles
     while(i--){if(waits[i]!=handles[i])NtClose(waits[i]);}
     return status;
 }
-NTSTATUS WINAPI probe_NtClose(HANDLE handle)
+static NTSTATUS WINAPI close_native_handle(UINT *arguments)
 {
     extern BOOL probe_socket_close(HANDLE,NTSTATUS *);
-    AcquireSRWLockExclusive(&files_lock);
+    HANDLE handle=*(HANDLE *)arguments;
     NTSTATUS status;
     if(!probe_socket_close(handle,&status))status=NtClose(handle);
+    return status;
+}
+NTSTATUS WINAPI probe_NtClose(HANDLE handle)
+{
+    extern NTSTATUS wow64_syscall(UINT *,ULONG_PTR);
+    AcquireSRWLockExclusive(&files_lock);
+    /* Native NtClose can raise under a debugger. Convert that exception with
+     * Wine's original wrapper before returning through the alias lock. Its
+     * invalid-handle path also schedules the original guest raise dispatcher. */
+    NTSTATUS status=wow64_syscall((UINT *)&handle,(ULONG_PTR)close_native_handle);
     if(!status)remove_alias_locked(handle);
     ReleaseSRWLockExclusive(&files_lock);return status;
 }
