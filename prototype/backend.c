@@ -390,6 +390,8 @@ NTSTATUS WINAPI Wow64SystemServiceEx(UINT n,UINT *a)
 }
 typedef NTSTATUS (WINAPI *entry_t)(void *);
 extern BOOL probe_socket_unix_dispatch(ULONGLONG,ULONG,void *,NTSTATUS *);
+static uint64_t private_bridge_table;
+void probe_set_bridge_table(void *table) { private_bridge_table=(uintptr_t)table; }
 NTSTATUS WINAPI probe_library_dispatch(uint64_t handle,unsigned int n,void *a)
 {
     NTSTATUS status;
@@ -408,8 +410,8 @@ NTSTATUS WINAPI probe_library_dispatch(uint64_t handle,unsigned int n,void *a)
         }
         goto done;
     }
-    if(probe_socket_unix_dispatch(handle,n,a,&status))return status;
-    if(n>=BRIDGE_COUNT) return STATUS_INVALID_PARAMETER;
+    if(probe_socket_unix_dispatch(handle,n,a,&status))goto done;
+    if(handle==private_bridge_table&&n>=BRIDGE_COUNT)return STATUS_INVALID_PARAMETER;
     status=((entry_t *)(uintptr_t)handle)[n](a);
 done:
     __asm__ __volatile__("movw %%ss,%%ax; movw %%ax,%%ss":::"ax","memory");

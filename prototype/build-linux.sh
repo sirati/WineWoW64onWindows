@@ -24,6 +24,7 @@ fi
 python3 prototype/extract-exceptions.py
 python3 prototype/select-wine-thunks.py
 python3 prototype/extract-native-sockets.py
+python3 prototype/extract-wine-unixlib.py
 source prototype/build-wine-sockets.sh
 perl -0777 -ne '/(^static inline void set_async_iosb\([^\n]*\)\n\{.*?^\})/ms or die "Wine async IOSB helper missing";print "$1\n";' \
   wine-11.0-source/dlls/ntdll/unix/unix_private.h > prototype/out/wine-async-iosb.inc
@@ -172,7 +173,7 @@ for unit in file process registry security sync syscall system virtual; do
   "$cc64" "${flags[@]}" "${extra[@]}" "${inc[@]}" -Iwine-11.0-source/dlls/wow64 \
     -c "$unit_source" -o prototype/out/wine-$unit.o
 done
-"$cc64" "${flags[@]}" "${inc[@]}" prototype/host.c prototype/backend.c prototype/wine_cpu_adapter.c prototype/wine_exceptions.c prototype/wine_extended_context.c prototype/xstate.c prototype/native_io.c prototype/native_sockets.c prototype/native_socket_io.c prototype/native_threads.c \
+"$cc64" "${flags[@]}" "${inc[@]}" prototype/host.c prototype/backend.c prototype/wine_cpu_adapter.c prototype/wine_exceptions.c prototype/wine_extended_context.c prototype/xstate.c prototype/native_io.c prototype/native_sockets.c prototype/native_socket_io.c prototype/native_threads.c prototype/native_loader.c \
   prototype/out/wine-file.o prototype/out/wine-process.o prototype/out/wine-sync.o prototype/out/wine-virtual.o \
   prototype/out/wine-registry.o \
   prototype/out/wine-system.o prototype/out/wine-security.o \

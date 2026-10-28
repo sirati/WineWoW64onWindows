@@ -101,26 +101,8 @@ BOOL probe_socket_unix_dispatch(ULONGLONG handle,ULONG code,void *args,NTSTATUS 
     *result=code<ws_unix_funcs_count?__wine_unix_call_wow64_funcs[code](args):STATUS_INVALID_PARAMETER;
     return TRUE;
 }
-NTSTATUS WINAPI probe_NtQueryVirtualMemory(HANDLE process,const void *address,MEMORY_INFORMATION_CLASS class,
-                                          void *buffer,SIZE_T size,SIZE_T *returned)
+BOOL probe_socket_builtin_unixlib(const char *name,ULONGLONG *handle)
 {
-    if(class==MemoryWineUnixWow64Funcs||class==MemoryWineUnixFuncs)
-    {
-        if(process!=GetCurrentProcess())return STATUS_INVALID_HANDLE;
-        if(size!=sizeof(ULONGLONG))return STATUS_INFO_LENGTH_MISMATCH;
-        const BYTE *base=address;const IMAGE_DOS_HEADER *dos=(const void *)base;
-        if(!base||dos->e_magic!=IMAGE_DOS_SIGNATURE)return STATUS_INVALID_PARAMETER;
-        const IMAGE_NT_HEADERS32 *nt=(const void *)(base+dos->e_lfanew);
-        const IMAGE_DATA_DIRECTORY *dir=&nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
-        if(!dir->Size)return STATUS_DLL_NOT_FOUND;
-        const IMAGE_EXPORT_DIRECTORY *exports=(const void *)(base+dir->VirtualAddress);
-        const char *name=(const char *)base+exports->Name;
-        if(_stricmp(name,"ws2_32.dll"))
-        { fprintf(stderr,"MISSING_NATIVE_UNIXLIB %s\n",name);return STATUS_DLL_NOT_FOUND; }
-        *(ULONGLONG *)buffer=(ULONG_PTR)__wine_unix_call_wow64_funcs;
-        if(returned)*returned=sizeof(ULONGLONG);
-        return STATUS_SUCCESS;
-    }
-    return NtQueryVirtualMemory(process,address,class,buffer,size,returned);
+    if(_stricmp(name,"ws2_32.dll"))return FALSE;
+    *handle=(ULONG_PTR)__wine_unix_call_wow64_funcs;return TRUE;
 }
-NTSTATUS (WINAPI *__imp_probe_NtQueryVirtualMemory)(HANDLE,const void *,MEMORY_INFORMATION_CLASS,void *,SIZE_T,SIZE_T *)=probe_NtQueryVirtualMemory;

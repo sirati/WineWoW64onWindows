@@ -1,0 +1,205 @@
+/* Native Windows services for Wine's original builtin unixlib lookup/cache.
+ * Guest PE mapping, import resolution and DllMain stay in Wine's PE loader. */
+#include "ntstatus.h"
+#define WIN32_NO_STATUS
+#include <windows.h>
+#include <winternl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "wine/list.h"
+#include "native_loader.h"
+extern BOOL probe_socket_builtin_unixlib(const char *,ULONGLONG *);
+
+static CRITICAL_SECTION virtual_mutex;
+static const char *dll_dir,*build_dir,*alt_build_dir;
+static const USHORT current_machine=IMAGE_FILE_MACHINE_AMD64;
+static const char **dll_paths;
+static char *dll_path_environment;
+static size_t dll_path_maxlen;
+typedef int sigset_t;
+#define server_enter_uninterrupted_section(lock,mask) EnterCriticalSection(lock)
+#define server_leave_uninterrupted_section(lock,mask) LeaveCriticalSection(lock)
+#define RTLD_NOW 0
+#define WARN_(channel) WARN
+#define WARN(...) do {} while(0)
+
+static WCHAR *wide_path(const char *path)
+{
+    int count=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path,-1,NULL,0);
+    WCHAR *result=count?malloc(count*sizeof(WCHAR)):NULL;
+    if(result)MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path,-1,result,count);
+    if(result)for(WCHAR *p=result;*p;p++)if(*p==L'/')*p=L'\\';
+    DWORD needed=result?GetFullPathNameW(result,0,NULL,NULL):0;
+    WCHAR *absolute=needed?malloc(needed*sizeof(WCHAR)):NULL;
+    if(absolute&&(!GetFullPathNameW(result,needed,absolute,NULL)))
+    {free(absolute);absolute=NULL;}
+    free(result);return absolute;
+}
+static char *utf8_path(const WCHAR *path)
+{
+    int count=WideCharToMultiByte(CP_UTF8,0,path,-1,NULL,0,NULL,NULL);
+    char *result=count?malloc(count):NULL;
+    if(result)WideCharToMultiByte(CP_UTF8,0,path,-1,result,count,NULL,NULL);
+    return result;
+}
+static void *native_dlopen(const char *path,int flags)
+{
+    WCHAR *name=wide_path(path);(void)flags;
+    /* The absolute unixlib path also supplies the directory for native
+     * dependencies. No Wine guest DLL is passed to the Windows loader. */
+    HMODULE module=name?LoadLibraryExW(name,NULL,LOAD_WITH_ALTERED_SEARCH_PATH):NULL;
+    if(!module)fprintf(stderr,"NATIVE_UNIXLIB_LOAD_FAILED path=%s error=%lu\n",path,GetLastError());
+    free(name);return module;
+}
+#define dlopen native_dlopen
+#define dlsym(module,name) ((void *)GetProcAddress(module,name))
+#define dlclose(module) FreeLibrary(module)
+#include "out/wine-unixlib-cache.inc"
+
+static BOOL native_unixlib_exists(const char *path)
+{
+    WCHAR *name=wide_path(path);
+    DWORD attributes=name?GetFileAttributesW(name):INVALID_FILE_ATTRIBUTES;
+    free(name);
+    return attributes!=INVALID_FILE_ATTRIBUTES&&!(attributes&FILE_ATTRIBUTE_DIRECTORY);
+}
+#include "out/wine-unixlib-paths.inc"
+
+static char *environment_path(const WCHAR *name)
+{
+    DWORD count=GetEnvironmentVariableW(name,NULL,0);
+    WCHAR *value=count?malloc(count*sizeof(WCHAR)):NULL;
+    char *result=NULL;
+    if(value&&GetEnvironmentVariableW(name,value,count)<count)result=utf8_path(value);
+    free(value);return result;
+}
+void probe_loader_init(void)
+{
+    WCHAR path[32768];
+    DWORD count=GetModuleFileNameW(NULL,path,ARRAY_SIZE(path));
+    if(!count||count>=ARRAY_SIZE(path))ExitProcess(94);
+    WCHAR *tail=wcsrchr(path,L'\\');if(!tail)ExitProcess(94);*tail=0;
+    /* Like Wine's so_dir, x86_64-native is relative to the installed host.
+     * Existing packaged PEs also remain on the stock-wine search path. */
+    dll_dir=utf8_path(path);
+    dll_path_environment=environment_path(L"WINEDLLPATH");
+    build_dir=environment_path(L"WINEBUILDDIR");
+    if(!dll_dir)ExitProcess(94);
+    InitializeCriticalSection(&virtual_mutex);
+    set_dll_path();
+}
+BOOL probe_loader_append_paths(WCHAR *path,SIZE_T capacity)
+{
+    /* Feed Wine's own search_dll_file default path. As in
+     * find_builtin_without_file, try the architecture dir before the root. */
+    for(unsigned i=0;dll_paths[i];i++)
+    {
+        char *name=build_path(dll_paths[i],get_pe_dir(IMAGE_FILE_MACHINE_I386));
+        WCHAR *directory=name?wide_path(name):NULL;free(name);
+        if(!directory)return FALSE;
+        if(wcslen(path)+wcslen(directory)+2>capacity){free(directory);return FALSE;}
+        wcscat(path,L";");wcscat(path,directory);free(directory);
+        directory=wide_path(dll_paths[i]);if(!directory)return FALSE;
+        if(wcslen(path)+wcslen(directory)+2>capacity){free(directory);return FALSE;}
+        wcscat(path,L";");wcscat(path,directory);free(directory);
+    }
+    return TRUE;
+}
+
+static char *mapped_builtin_directory(void *module)
+{
+    SIZE_T size=sizeof(UNICODE_STRING)+32768*sizeof(WCHAR),returned;
+    UNICODE_STRING *name=malloc(size);
+    if(!name)return NULL;
+    char *root=NULL;
+    if(!NtQueryVirtualMemory(GetCurrentProcess(),module,MemoryMappedFilenameInformation,name,size,&returned))
+    {
+        /* A native section name is \Device\..., accepted by the Win32
+         * loader through GLOBALROOT. It need not be a native loader module. */
+        WCHAR path[32768];
+        if(name->Length/sizeof(WCHAR)+15<ARRAY_SIZE(path))
+        {
+            wcscpy(path,L"\\\\?\\GLOBALROOT");
+            size_t offset=wcslen(path);
+            memcpy(path+offset,name->Buffer,name->Length);
+            path[offset+name->Length/sizeof(WCHAR)]=0;
+            WCHAR *tail=wcsrchr(path,L'\\');
+            if(tail)
+            {
+                *tail=0;tail=wcsrchr(path,L'\\');
+                if(tail&&!wcsicmp(tail+1,L"i386-windows"))*tail=0;
+                root=utf8_path(path);
+            }
+        }
+    }
+    free(name);return root;
+}
+NTSTATUS probe_builtin_unixlib(void *module,ULONGLONG *handle)
+{
+    MEMORY_BASIC_INFORMATION info;
+    if(!VirtualQuery(module,&info,sizeof(info))||info.AllocationBase!=module||info.Type!=MEM_IMAGE)
+        return STATUS_DLL_NOT_FOUND;
+    IMAGE_DOS_HEADER *dos=module;
+    if(dos->e_magic!=IMAGE_DOS_SIGNATURE)return STATUS_DLL_NOT_FOUND;
+    IMAGE_NT_HEADERS32 *nt=(void *)((BYTE *)module+dos->e_lfanew);
+    if(nt->Signature!=IMAGE_NT_SIGNATURE||nt->FileHeader.Machine!=IMAGE_FILE_MACHINE_I386)
+        return STATUS_DLL_NOT_FOUND;
+    ULONG size;
+    IMAGE_EXPORT_DIRECTORY *exports=RtlImageDirectoryEntryToData(module,TRUE,IMAGE_DIRECTORY_ENTRY_EXPORT,&size);
+    if(!exports||!exports->Name||exports->Name>=nt->OptionalHeader.SizeOfImage)return STATUS_DLL_NOT_FOUND;
+    const char *name=(char *)module+exports->Name;
+    SIZE_T length=strnlen(name,nt->OptionalHeader.SizeOfImage-exports->Name);
+    if(length==nt->OptionalHeader.SizeOfImage-exports->Name||length>MAX_PATH)return STATUS_DLL_NOT_FOUND;
+    if(probe_socket_builtin_unixlib(name,handle))return STATUS_SUCCESS;
+    if(dos->e_lfanew<sizeof(*dos)+sizeof("Wine builtin DLL")||
+       memcmp(dos+1,"Wine builtin DLL",sizeof("Wine builtin DLL")))return STATUS_DLL_NOT_FOUND;
+    ANSI_STRING exp_name={(USHORT)length,(USHORT)(length+1),(char *)name};
+    UNICODE_STRING nt_name={0};
+    const void *funcs=NULL;
+    EnterCriticalSection(&virtual_mutex);
+    struct builtin_module *builtin;
+    BOOL present=FALSE;
+    LIST_FOR_EACH_ENTRY(builtin,&builtin_modules,struct builtin_module,entry)
+        if(builtin->module==module){present=TRUE;break;}
+    if(!present)
+    {
+        add_builtin_module(module,NULL);
+        char *root=mapped_builtin_directory(module);
+        if(root)
+        {
+            char *directory=build_path(root,get_so_dir(IMAGE_FILE_MACHINE_AMD64));
+            char *path=directory?build_path(directory,name):NULL;
+            if(path&&native_unixlib_exists(path))load_builtin_unixlib(module,path);
+            free(path);free(directory);free(root);
+        }
+        if(find_native_unixlib(module,&nt_name,&exp_name)==STATUS_NO_MEMORY)
+        {LeaveCriticalSection(&virtual_mutex);return STATUS_NO_MEMORY;}
+    }
+    NTSTATUS status=get_builtin_unix_funcs(module,TRUE,&funcs);
+    LeaveCriticalSection(&virtual_mutex);
+    if(!status)*handle=(ULONG_PTR)funcs;
+    if(status)fprintf(stderr,"MISSING_NATIVE_UNIXLIB %s status=%08lx\n",name,status);
+    return status;
+}
+void WINAPI probe_unixlib_unmap(void *module,BOOL post,NTSTATUS status)
+{
+    if(!post||status<0)return;
+    EnterCriticalSection(&virtual_mutex);
+    release_builtin_module(module);
+    LeaveCriticalSection(&virtual_mutex);
+}
+NTSTATUS WINAPI probe_NtQueryVirtualMemory(HANDLE process,const void *address,MEMORY_INFORMATION_CLASS class,
+                                          void *buffer,SIZE_T size,SIZE_T *returned)
+{
+    if(class==MemoryWineUnixWow64Funcs||class==MemoryWineUnixFuncs)
+    {
+        if(size!=sizeof(ULONGLONG))return STATUS_INFO_LENGTH_MISMATCH;
+        if(process!=GetCurrentProcess())return STATUS_INVALID_HANDLE;
+        NTSTATUS status=probe_builtin_unixlib((void *)address,buffer);
+        if(!status&&returned)*returned=sizeof(ULONGLONG);
+        return status;
+    }
+    return NtQueryVirtualMemory(process,address,class,buffer,size,returned);
+}
+NTSTATUS (WINAPI *__imp_probe_NtQueryVirtualMemory)(HANDLE,const void *,MEMORY_INFORMATION_CLASS,void *,SIZE_T,SIZE_T *)=probe_NtQueryVirtualMemory;

@@ -1,9 +1,11 @@
 # Port constraints
 
 Keep application and DLL loading in Wine. Reuse Wine's algorithms and keep
-source changes small. GUI and sound integration are excluded. The current
-goal includes additional guest NT services needed by non-GUI, non-audio tests.
-The runtime target remains x86 guests in an x64 Windows host.
+source changes small. The test goal includes additional guest NT services.
+For Civ3, GUI scope now includes Wine's own win32u, wow64win, server window
+and message handling, and nulldrv. Do not route guest GUI to host win32u.
+Sound output and ARM64 remain excluded. Guests are x86 only; the x64 host
+and x86_64-native unixlib DLLs are ordinary native Windows code, not Wine PEs.
 The repository records the pinned Nix cross build, patches, Windows adapters,
 test helpers and documentation. Generated Wine sources and binaries stay out
 of Git. Windows runs tests; Linux/Nix/MinGW builds the runtime and test inputs.

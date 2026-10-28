@@ -8,6 +8,7 @@
 #include "shared.h"
 #include "cpu_host.h"
 #include "native_threads.h"
+#include "native_loader.h"
 #include "native_io.h"
 #include "out/wine-ntdll-symbols.h"
 extern DWORD WINAPI probe_run32(I386_CONTEXT *);
@@ -73,6 +74,7 @@ static LONG native_process_shutdown;
 static void *native_dispatch_table,*guest_unix_gate;
 extern NTSTATUS (WINAPI *pBTCpuNotifyMapViewOfSection)(void *,void *,void *,SIZE_T,ULONG,ULONG);
 extern void (WINAPI *pBTCpuNotifyMemoryProtect)(void *,SIZE_T,ULONG,BOOL,NTSTATUS);
+extern void (WINAPI *pBTCpuNotifyUnmapViewOfSection)(void *,BOOL,NTSTATUS);
 static void *guest_export(struct guest_module *m,const char *name,WORD ordinal);
 static void fail(const char *s);
 static void fail(const char *s) { fprintf(stderr,"FAIL %s, Windows error %lu\n",s,GetLastError()); exit(80); }
@@ -653,6 +655,7 @@ static void init_guest_process_params(struct guest_module *app,int argc,char **a
     if(!GetFullPathNameW(L"stock-wine",1024,stock,NULL))fail("Wine DLL directory");
     wcscpy(dllpath,app->path);WCHAR *end_path=wcsrchr(dllpath,L'\\');if(end_path)*end_path=0;
     wcscat(dllpath,L";");wcscat(dllpath,stock);wcscat(dllpath,L";");wcscat(dllpath,cwd);
+    if(!probe_loader_append_paths(dllpath,ARRAY_SIZE(dllpath)))fail("Wine builtin search path");
     copy_string32(&p->DllPath,dllpath,&next);
     WCHAR *env=GetEnvironmentStringsW(),*end=env;
     if(!env) fail("environment");while(*end) end+=wcslen(end)+1;
@@ -1023,6 +1026,7 @@ int main(int argc,char **argv)
     { MEMORY_BASIC_INFORMATION info={0};VirtualQuery((void *)0x400000,&info,sizeof(info));
       printf("EARLY_IMAGE reservation=%p owner=%p region=%p size=%llx state=%lx type=%lx\n",early_image_reservation,info.AllocationBase,info.BaseAddress,(unsigned long long)info.RegionSize,info.State,info.Type); }
     probe_backend_init();
+    probe_loader_init();
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
     AddVectoredExceptionHandler(1,probe_vectored_entry);
     IsWow64Process(GetCurrentProcess(),&wow);
@@ -1108,7 +1112,10 @@ int main(int argc,char **argv)
     guest_return_gate=&gate[2];
     probe_set_bop_code(&gate[0]);
     native_dispatch_table=table;guest_unix_gate=&gate[1];
+    extern void probe_set_bridge_table(void *);
+    probe_set_bridge_table(table);
     pBTCpuNotifyMapViewOfSection=bind_native_bridge;
+    pBTCpuNotifyUnmapViewOfSection=probe_unixlib_unmap;
     pBTCpuNotifyMemoryProtect=notify_stack_protection;
     ((TEB32 *)guest_teb)->WOW32Reserved=(DWORD)(uintptr_t)&gate[0];
     if(wine_components)
