@@ -1060,7 +1060,7 @@ int main(int argc,char **argv)
     struct guest_module *kb=wine_components?load_runtime_image(L"stock-wine/kernelbase.dll","kernelbase.dll"):0;
     struct guest_module *k32=load_runtime_image(wine_components?L"stock-wine/kernel32.dll":L"guest/kernel32.dll","kernel32.dll");
     struct guest_module *crt=wine_components?load_runtime_image(L"stock-wine/msvcrt.dll","msvcrt.dll"):0;
-    struct guest_module *bridge=wine_components?load_runtime_image(L"guest/kernel32.dll","bridge_kernel32.dll"):0;
+    struct guest_module *bridge=wine_components?load_runtime_image(L"guest/bridge_kernel32.dll","bridge_kernel32.dll"):0;
     struct guest_module *bootstrap=wine_components?load_runtime_image(L"guest/bootstrap32.dll","bootstrap32.dll"):0;
     const char *app_name=app_arg;for(const char *p=app_arg;*p;p++)if(*p=='/'||*p=='\\')app_name=p+1;
     struct guest_module app_data={.name=app_name},*app=&app_data;

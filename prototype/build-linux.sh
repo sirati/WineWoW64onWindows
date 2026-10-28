@@ -70,6 +70,7 @@ crtend=$($cc64 -print-file-name=crtend.o)
 "$cc32" "${flags[@]}" "${inc[@]}" -shared -nostdlib prototype/guest_kernel32.c prototype/guest_kernel32.def \
   prototype/out/libguest_ntdll.a -Wl,--entry,DllMain@12,--image-base,0x11000000,--add-stdcall-alias,--out-implib,prototype/out/libguest_kernel32.a \
   -o prototype/out/guest/kernel32.dll
+cp prototype/out/guest/kernel32.dll prototype/out/guest/bridge_kernel32.dll
 
 # Static image-backed gates contain both x86 entries and x64 trampolines.
 "$cc32" -shared -nostdlib prototype/transition32.S prototype/transition32.def \

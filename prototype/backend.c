@@ -271,6 +271,9 @@ extern NTSTATUS WINAPI wow64_NtOpenProcess(UINT *),wow64_NtTerminateProcess(UINT
 extern NTSTATUS WINAPI wow64_NtReadVirtualMemory(UINT *),wow64_NtWriteVirtualMemory(UINT *),wow64_NtAllocateVirtualMemoryEx(UINT *);
 extern NTSTATUS WINAPI wow64_NtDeleteKey(UINT *),wow64_NtDeleteValueKey(UINT *);
 extern NTSTATUS WINAPI wow64_NtQuerySystemInformationEx(UINT *),wow64_NtConvertBetweenAuxiliaryCounterAndPerformanceCounter(UINT *);
+extern NTSTATUS WINAPI wow64_NtWow64GetNativeSystemInformation(UINT *);
+extern NTSTATUS WINAPI wow64_NtOpenProcessToken(UINT *),wow64_NtOpenProcessTokenEx(UINT *);
+extern NTSTATUS WINAPI wow64_NtOpenThreadToken(UINT *),wow64_NtOpenThreadTokenEx(UINT *);
 extern NTSTATUS WINAPI wow64_NtCreateKeyedEvent(UINT *);
 extern NTSTATUS WINAPI wow64_NtOpenKeyedEvent(UINT *);
 extern NTSTATUS WINAPI wow64_NtWaitForKeyedEvent(UINT *);
@@ -396,6 +399,11 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
     case 0x0104: status=wow64_NtWow64IsProcessorFeaturePresent(a);break;
     case 0x0021: status=wow64_NtQueryInformationToken(a);break;
     case 0x0036: status=wow64_NtQuerySystemInformation(a);break;
+    case 0x0103: status=wow64_NtWow64GetNativeSystemInformation(a);break;
+    case 0x00b5: status=wow64_NtOpenProcessToken(a);break;
+    case 0x0030: status=wow64_NtOpenProcessTokenEx(a);break;
+    case 0x0024: status=wow64_NtOpenThreadToken(a);break;
+    case 0x002f: status=wow64_NtOpenThreadTokenEx(a);break;
     case 0x005a: status=wow64_NtQuerySystemTime(a);break;
     case 0x0012: status=wow64_NtOpenKey(a);break;
     case 0x0013: status=wow64_NtEnumerateValueKey(a);break;
