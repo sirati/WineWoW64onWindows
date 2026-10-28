@@ -49,6 +49,7 @@ in stdenv.mkDerivation {
     mkdir wine-11.0-source
     tar -xf ${wineSource} -C wine-11.0-source --strip-components=1
     patch -d wine-11.0-source -p1 < ${../patches/0002-port-extracted-sources.patch}
+    patch -d wine-11.0-source -p1 < ${../patches/0005-hypervisor-shared-page.patch}
     mkdir -p prototype/include prototype/stock-wine/i386-windows
     cp -R ${wine}/include/wine prototype/include/
     mkdir -p evidence

@@ -1,0 +1,30 @@
+Windows exposes its live hypervisor QPC page below 4 GiB. Wine's Unix
+backend does not use this page, so its WoW64 system-information thunk has
+no pointer conversion for it. Query the native pointer and convert its
+size, retaining the shared mapping instead of copying volatile clock data.
+
+--- a/dlls/wow64/system.c
++++ b/dlls/wow64/system.c
+@@ -344,6 +344,22 @@
+         if (!status && pBTCpuUpdateProcessorInformation) pBTCpuUpdateProcessorInformation( ptr );
+         return status;
+ 
++    case SystemHypervisorSharedPageInformation:  /* void * */
++        if (len == sizeof(ULONG))
++        {
++            void *page;
++
++            if (!ptr) status = STATUS_ACCESS_VIOLATION;
++            else if (!(status = NtQuerySystemInformation( class, &page, sizeof(page), NULL )))
++            {
++                if ((ULONG_PTR)page > MAXDWORD) status = STATUS_CONFLICTING_ADDRESSES;
++                else *(ULONG *)ptr = PtrToUlong( page );
++            }
++        }
++        else status = STATUS_INFO_LENGTH_MISMATCH;
++        if (retlen) *retlen = sizeof(ULONG);
++        return status;
++
+     case SystemBasicInformation:  /* SYSTEM_BASIC_INFORMATION */
+     case SystemEmulationBasicInformation:  /* SYSTEM_BASIC_INFORMATION */
+         if (len == sizeof(SYSTEM_BASIC_INFORMATION32))
