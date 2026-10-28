@@ -245,7 +245,12 @@ void probe_system_process_tebs(void *info,ULONG size)
                 {
                     struct guest_thread *thread=CONTAINING_RECORD(entry,struct guest_thread,entry);
                     if(list[i].ThreadInfo.ClientId.UniqueThread==ULongToHandle(thread->id))
-                    {list[i].TebBase=thread->teb;break;}
+                    {
+                        /* Extended snapshots expose the native TEB, while
+                         * ThreadBasicInformation adds Wine's WoW64 offset. */
+                        list[i].TebBase=(BYTE *)thread->teb-0x2000;
+                        break;
+                    }
                 }
         }
         if(!process->NextEntryOffset)break;
