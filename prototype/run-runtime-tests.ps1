@@ -19,7 +19,13 @@ foreach($program in $Programs) {
             $p.StartInfo.UseShellExecute=$false;$p.StartInfo.RedirectStandardOutput=$true;$p.StartInfo.RedirectStandardError=$true
             [void]$p.Start();$out=$p.StandardOutput.ReadToEndAsync();$err=$p.StandardError.ReadToEndAsync()
             $timeout=-not $p.WaitForExit(15000)
-            if($timeout){$p.Kill();$p.WaitForExit()}
+            if($timeout){
+                # Child processes can inherit these output pipes. End the
+                # tree before collecting streams so the timeout stays bounded.
+                & "$env:SystemRoot/System32/taskkill.exe" /PID $p.Id /T /F|Out-Null
+                if(-not $p.HasExited){$p.Kill()}
+                $p.WaitForExit()
+            }
             $pattern=switch($program){
                 'builtin_process32' { '(?m)^builtin_process32: system command interpreter loads as x86, stays suspended and terminates cleanly passed\r?$' }
                 'process_create32' { '(?m)^process_create32: child loading, suspended DLL attach, Unicode parameters, inherited handles and redirected output passed\r?$' }
@@ -71,7 +77,7 @@ foreach($program in $Programs) {
             }
             $loaderMatches=$native -or ($out.Result -match 'WINE_LOAD_APPLICATION status=00000000' -and
                                        $out.Result -match "GUEST_EXIT code=$expectedExit .*HOST_RETURNED")
-            $rows+=[pscustomobject]@{probe=$program;native=$native;iteration=$i;pid=$p.Id;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;workingDirectory=$p.StartInfo.WorkingDirectory;exitCode=$p.ExitCode;expectedExit=$expectedExit;timedOut=$timeout;passed=(-not $timeout -and $p.ExitCode -eq $expectedExit -and $out.Result -match $pattern -and $modeMatches -and $loaderMatches);stdout=$out.Result;stderr=$err.Result}
+            $rows+=[pscustomobject]@{probe=$program;native=$native;iteration=$i;pid=$p.Id;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;workingDirectory=$p.StartInfo.WorkingDirectory;exitCode=$p.ExitCode;expectedExit=$expectedExit;timedOut=$timeout;timeoutSeconds=15;markerPattern=$pattern;modeMatches=$modeMatches;loaderMatches=$loaderMatches;passed=(-not $timeout -and $p.ExitCode -eq $expectedExit -and $out.Result -match $pattern -and $modeMatches -and $loaderMatches);stdout=$out.Result;stderr=$err.Result}
             $p.Dispose()
             if($StopOnFailure -and -not $rows[-1].passed){break}
         }

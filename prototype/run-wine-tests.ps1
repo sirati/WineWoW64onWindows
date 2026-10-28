@@ -59,7 +59,7 @@ foreach($name in $Tests) {
         }
         $loaded=$native -or $stdout -match 'WINE_LOAD_APPLICATION status=00000000'
         $completed=-not $timeout -and $summary.Success -and $loaded
-        $rows+=[pscustomobject]@{name=$name;native=$native;pid=$p.Id;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;platform=$p.StartInfo.EnvironmentVariables['WINETEST_PLATFORM'];exitCode=$p.ExitCode;timedOut=$timeout;completed=$completed;passed=($completed -and $p.ExitCode -eq 0 -and $counts.failures -eq 0);counts=$counts;unsupportedServices=@([regex]::Matches($stderr,'UNIMPLEMENTED NT service [0-9a-fA-F]+')|ForEach-Object {$_.Value}|Sort-Object -Unique);stdoutPath="$mode-$name.stdout.txt";stderrPath="$mode-$name.stderr.txt"}
+        $rows+=[pscustomobject]@{name=$name;native=$native;pid=$p.Id;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;workingDirectory=$p.StartInfo.WorkingDirectory;fixture=$executable;fixtureSHA256=$test.sha256;platform=$p.StartInfo.EnvironmentVariables['WINETEST_PLATFORM'];exitCode=$p.ExitCode;timedOut=$timeout;timeoutSeconds=$TimeoutSeconds;wineLoadMarker=$loaded;completed=$completed;passed=($completed -and $p.ExitCode -eq 0 -and $counts.failures -eq 0);counts=$counts;unsupportedServices=@([regex]::Matches($stderr,'UNIMPLEMENTED NT service [0-9a-fA-F]+')|ForEach-Object {$_.Value}|Sort-Object -Unique);stdoutPath="$mode-$name.stdout.txt";stderrPath="$mode-$name.stderr.txt"}
         [IO.File]::WriteAllText("$results/$mode-$name.stdout.txt",$stdout)
         [IO.File]::WriteAllText("$results/$mode-$name.stderr.txt",$stderr)
         $p.Dispose()
