@@ -10,7 +10,10 @@ root = pathlib.Path(sys.argv[1])
 out = pathlib.Path("prototype/stock-wine/i386-windows")
 files = {p.name.lower(): p for p in root.glob("*.dll")}
 seen = set()
-todo = ["ntdll.dll", "kernelbase.dll", "kernel32.dll", "msvcrt.dll", "oleaut32.dll", "user32.dll", "advapi32.dll", "ws2_32.dll", "version.dll", "msvcr100.dll"]
+todo = ["ntdll.dll", "kernelbase.dll", "kernel32.dll", "msvcrt.dll", "oleaut32.dll",
+        "user32.dll", "advapi32.dll", "ws2_32.dll", "version.dll", "msvcr100.dll",
+        "opengl32.dll", "winmm.dll", "comdlg32.dll", "wsock32.dll", "dsound.dll",
+        "bcryptprimitives.dll", "userenv.dll"]
 
 def imports(path):
     data = path.read_bytes()
