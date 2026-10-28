@@ -72,6 +72,7 @@ in stdenv.mkDerivation {
     cp docs/validation-22ec829.txt $out/docs/
     cp docs/validation-d7eaf54.txt $out/docs/
     cp docs/validation-5c02e38.txt $out/docs/
+    cp docs/upstream-wine-tests.txt $out/docs/
     cp docs/cet-investigation.txt $out/docs/
     cp docs/loader-relocation-regression.txt $out/docs/
     cat > $out/docs/build-inputs.txt <<EOF
