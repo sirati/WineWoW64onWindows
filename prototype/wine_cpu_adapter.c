@@ -114,6 +114,9 @@ __ASM_GLOBAL_FUNC(probe_resume32,
 /* Windows enters a native VEH on the interrupted guest stack. Call C on
  * the saved native stack, so its probes use the native TEB's stack limits. */
 __ASM_GLOBAL_FUNC(probe_vectored_entry,
+    /* Wine's signal_x86_64.c init_handler clears live AC before calling C.
+     * The saved exception context retains the interrupted guest flags. */
+    "pushfq\n\tandl $~0x40000,(%rsp)\n\tpopfq\n\t"
     "pushq %r12\n\tmovq %rsp,%r12\n\tmovq 8(%rcx),%rax\n\t"
     "cmpw $0x23,0x38(%rax)\n\tjne 1f\n\t"
     "movq 0xe8(%rax),%r11\n\ttestq %r11,%r11\n\tje 1f\n\t"

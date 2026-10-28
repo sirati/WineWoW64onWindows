@@ -15,6 +15,7 @@ extern struct guest_cpu *probe_current_cpu(void);
 extern TEB32 *probe_current_teb32(void);
 extern void probe_capture_guest_context(const CONTEXT *);
 extern void probe_capture_cpu_context(struct guest_cpu *,const CONTEXT *);
+extern void probe_resume_guest_context(CONTEXT *);
 extern void probe_resume32(void);
 extern DWORD WINAPI probe_run32(I386_CONTEXT *);
 extern void WINAPI RtlCaptureContext(CONTEXT *);
@@ -276,6 +277,15 @@ BOOL probe_dispatch_guest_exception(EXCEPTION_POINTERS *p)
     extern int probe_trace;
     struct guest_cpu *cpu=probe_current_cpu();CONTEXT *context=p->ContextRecord;
     if(!cpu||context->SegCs!=0x23||context->R13!=(uintptr_t)&cpu->ctx)return FALSE;
+    /* Wine's signal_x86_64.c TRAP_x86_ALIGNFLT path retries with AC reset,
+     * without delivering a guest exception when that flag caused the trap. */
+    if(p->ExceptionRecord->ExceptionCode==STATUS_DATATYPE_MISALIGNMENT&&
+       (context->EFlags&0x40000))
+    {
+        context->EFlags&=~0x40000;
+        probe_resume_guest_context(context);
+        return TRUE;
+    }
     WORD native_cs;__asm__("movw %%cs,%0":"=r"(native_cs));
     probe_capture_guest_context(context);
     /* Windows places its exception CONTEXT_EX on the interrupted guest
