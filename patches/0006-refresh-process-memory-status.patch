@@ -1,0 +1,21 @@
+Keep Wine's one-second system-memory cache, but refresh its process working
+set before deriving available virtual memory. DLL loading and heap activity
+can change the process counters while the cached system sample remains valid.
+Retain Wine's existing available-memory calculation and query thunk.
+
+--- a/dlls/kernelbase/memory.c
++++ b/dlls/kernelbase/memory.c
+@@ -1416,6 +1416,13 @@
+     if ((GetTickCount64() - last_check) < 1000 && cached_status.dwLength > 0)
+     {
+ 	*status = cached_status;
++        if (!set_ntstatus( NtQueryInformationProcess( GetCurrentProcess(), ProcessVmCounters,
++                                                      &vmc, sizeof(vmc), NULL )))
++        {
++            RtlLeaveCriticalSection(&memstatus_section);
++            return FALSE;
++        }
++        status->ullAvailVirtual = status->ullTotalVirtual - (ULONGLONG)vmc.WorkingSetSize;
+ 	RtlLeaveCriticalSection(&memstatus_section);
+ 	return TRUE;
+     }
