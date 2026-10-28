@@ -178,7 +178,7 @@ for unit in file process registry security sync syscall system virtual; do
   fi
   if [[ "$unit" == system ]]; then extra+=( -DNtQuerySystemInformation=probe_NtQuerySystemInformation );fi
   if [[ "$unit" == sync ]]; then extra+=( -DNtWaitForSingleObject=probe_NtWaitForSingleObject -DNtWaitForMultipleObjects=probe_NtWaitForMultipleObjects -DNtDuplicateObject=probe_NtDuplicateObject );fi
-  if [[ "$unit" == virtual ]]; then extra+=( -DNtAllocateVirtualMemoryEx=probe_NtAllocateVirtualMemoryEx -DNtFreeVirtualMemory=probe_NtFreeVirtualMemory -DNtGetNlsSectionPtr=probe_NtGetNlsSectionPtr -DNtInitializeNlsFiles=probe_NtInitializeNlsFiles -DNtQueryVirtualMemory=probe_NtQueryVirtualMemory );fi
+  if [[ "$unit" == virtual ]]; then extra+=( -DNtAllocateVirtualMemoryEx=probe_NtAllocateVirtualMemoryEx -DNtMapViewOfSectionEx=probe_NtMapViewOfSectionEx -DNtFreeVirtualMemory=probe_NtFreeVirtualMemory -DNtGetNlsSectionPtr=probe_NtGetNlsSectionPtr -DNtInitializeNlsFiles=probe_NtInitializeNlsFiles -DNtQueryVirtualMemory=probe_NtQueryVirtualMemory );fi
   if [[ "$unit" == file ]]; then extra+=( -DNtDeviceIoControlFile=probe_NtDeviceIoControlFile -DNtLockFile=probe_NtLockFile -DNtOpenFile=probe_NtOpenFile -DNtQueryInformationFile=probe_NtQueryInformationFile -DNtSetInformationFile=probe_NtSetInformationFile -DNtReadFile=probe_NtReadFile -DNtWriteFile=probe_NtWriteFile -DNtCancelIoFileEx=probe_NtCancelIoFileEx -DNtFsControlFile=probe_NtFsControlFile -DNtCreateNamedPipeFile=probe_NtCreateNamedPipeFile );fi
   unit_source=prototype/out/wine-$unit.c
   if [[ "$unit" == syscall ]];then unit_source=wine-11.0-source/dlls/wow64/syscall.c;fi

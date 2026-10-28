@@ -119,6 +119,14 @@ NTSTATUS WINAPI probe_NtAllocateVirtualMemoryEx(HANDLE process,void **address,SI
     return NtAllocateVirtualMemoryEx(process,address,size,type,protect,count?parameters:NULL,count);
 }
 NTSTATUS (WINAPI *__imp_probe_NtAllocateVirtualMemoryEx)(HANDLE,void **,SIZE_T *,ULONG,ULONG,MEM_EXTENDED_PARAMETER *,ULONG)=probe_NtAllocateVirtualMemoryEx;
+NTSTATUS WINAPI probe_NtMapViewOfSectionEx(HANDLE section,HANDLE process,void **address,
+                                          const LARGE_INTEGER *offset,SIZE_T *size,ULONG type,
+                                          ULONG protect,MEM_EXTENDED_PARAMETER *parameters,ULONG count)
+{
+    /* The section thunk uses the same empty temporary parameter array. */
+    return NtMapViewOfSectionEx(section,process,address,offset,size,type,protect,count?parameters:NULL,count);
+}
+NTSTATUS (WINAPI *__imp_probe_NtMapViewOfSectionEx)(HANDLE,HANDLE,void **,const LARGE_INTEGER *,SIZE_T *,ULONG,ULONG,MEM_EXTENDED_PARAMETER *,ULONG)=probe_NtMapViewOfSectionEx;
 /* Wine's synchronous LockFile path permits a NULL IO_STATUS_BLOCK. Windows
  * requires one even when failing immediately. Keep Wine's argument thunk
  * and supply storage only for this synchronous native-kernel difference. */
@@ -289,6 +297,11 @@ extern NTSTATUS WINAPI wow64_NtWaitForKeyedEvent(UINT *);
 extern NTSTATUS WINAPI wow64_NtReleaseKeyedEvent(UINT *);
 extern NTSTATUS WINAPI wow64_NtSetEventBoostPriority(UINT *);
 extern NTSTATUS WINAPI wow64_NtAlertThread(UINT *);
+extern NTSTATUS WINAPI wow64_NtMapViewOfSectionEx(UINT *),wow64_NtSetInformationVirtualMemory(UINT *);
+extern NTSTATUS WINAPI wow64_NtGetWriteWatch(UINT *),wow64_NtResetWriteWatch(UINT *);
+extern NTSTATUS WINAPI wow64_NtCreateDebugObject(UINT *),wow64_NtSetInformationDebugObject(UINT *);
+extern NTSTATUS WINAPI wow64_NtDebugActiveProcess(UINT *),wow64_NtRemoveProcessDebug(UINT *);
+extern NTSTATUS WINAPI wow64_NtDebugContinue(UINT *),wow64_NtWaitForDebugEvent(UINT *);
 static NTSTATUS WINAPI dispatch_nt(UINT *a)
 {
     NTSTATUS status;
@@ -350,6 +363,16 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
     case 0x003f: status=wow64_NtReadVirtualMemory(a);break;
     case 0x003a: status=wow64_NtWriteVirtualMemory(a);break;
     case 0x006b: status=wow64_NtAllocateVirtualMemoryEx(a);break;
+    case 0x00aa: status=wow64_NtMapViewOfSectionEx(a);break;
+    case 0x00e7: status=wow64_NtSetInformationVirtualMemory(a);break;
+    case 0x009c: status=wow64_NtGetWriteWatch(a);break;
+    case 0x00d8: status=wow64_NtResetWriteWatch(a);break;
+    case 0x00a6: status=wow64_NtCreateDebugObject(a);break;
+    case 0x00e3: status=wow64_NtSetInformationDebugObject(a);break;
+    case 0x008a: status=wow64_NtDebugActiveProcess(a);break;
+    case 0x00d4: status=wow64_NtRemoveProcessDebug(a);break;
+    case 0x008b: status=wow64_NtDebugContinue(a);break;
+    case 0x0100: status=wow64_NtWaitForDebugEvent(a);break;
     case 0x008e: status=wow64_NtDeleteKey(a);break;
     case 0x008f: status=wow64_NtDeleteValueKey(a);break;
     case 0x00cb: status=wow64_NtQuerySystemInformationEx(a);break;
