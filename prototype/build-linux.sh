@@ -30,7 +30,7 @@ install -m 644 prototype/stock-wine/*.nls prototype/out/stock-wine/
 # This pinned Wine PE retains private COFF symbols. The bootstrap calls the
 # original loader registration routine; it does not duplicate its indexes.
 "$nm32" --defined-only prototype/stock-wine/i386-windows/ntdll.dll | perl -ne '
- BEGIN { @wanted=qw(alloc_module fixup_imports loader_init tls_dirs tls_module_count hash_table ldr loader_section peb_lock default_load_path node_ntdll node_kernel32 imports_fixup_done current_version); }
+ BEGIN { @wanted=qw(alloc_module fixup_imports loader_init init_user_process_params tls_dirs tls_module_count hash_table ldr loader_section peb_lock default_load_path node_ntdll node_kernel32 imports_fixup_done current_version); }
  if(/^([0-9a-f]+) \w _(.+)$/) { $sym{$2}=hex($1)-0x7bc00000; }
  END { for $n (@wanted) { exists $sym{$n} or die "Wine private symbol missing: $n";printf "#define WINE_NTDLL_%s 0x%xu\n",$n,$sym{$n}; } }' \
  > prototype/out/wine-ntdll-symbols.h

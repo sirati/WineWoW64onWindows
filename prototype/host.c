@@ -1060,6 +1060,8 @@ int main(int argc,char **argv)
             if(relocation){SetLastError(RtlNtStatusToDosError(relocation));fail("Wine application relocation");}
             FlushInstructionCache(GetCurrentProcess(),app->base,app->nt->OptionalHeader.SizeOfImage);
         }
+        DWORD params_status=call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeInitProcessParameters",0),&gate[2],NULL,0);
+        printf("WINE_PROCESS_PARAMETERS status=%08lx\n",params_status);if(params_status)fail("Wine process parameters initialization");
         DWORD import_status=call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeFixupImports",0),&gate[2],NULL,0);
         printf("WINE_IMPORTS status=%08lx\n",import_status);if(import_status)fail("Wine application imports");
         if(crt)

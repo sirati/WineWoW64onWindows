@@ -1,11 +1,12 @@
 [CmdletBinding()]
 param(
     [string[]]$Tests=@('ntdll-rtlbitmap','ntdll-large_int','ntdll-error','ntdll-rtlstr','ntdll-string','ntdll-time','ntdll-env','msvcrt-cpp'),
-    [string]$UpstreamRoot="$PSScriptRoot/out/upstream-tests",
+    [string]$UpstreamRoot='',
     [int]$TimeoutSeconds=60,
     [string]$ReportName='upstream-wine-tests'
 )
 $ErrorActionPreference='Stop'
+if(-not $UpstreamRoot){$UpstreamRoot=Join-Path $PSScriptRoot 'out/upstream-tests'}
 $runtime=(Resolve-Path "$PSScriptRoot/out").Path
 $upstream=(Resolve-Path $UpstreamRoot).Path
 $manifest=Get-Content -Raw "$upstream/manifest.json"|ConvertFrom-Json
@@ -39,9 +40,18 @@ foreach($name in $Tests) {
         [void]$p.Start()
         $out=$p.StandardOutput.ReadToEndAsync();$err=$p.StandardError.ReadToEndAsync()
         $timeout=-not $p.WaitForExit($TimeoutSeconds*1000)
-        if($timeout){$p.Kill();$p.WaitForExit()}
+        if($timeout){
+            # Child tests can inherit these output pipes. Stop the entire
+            # process tree so a child cannot keep ReadToEndAsync blocked.
+            & "$env:SystemRoot/System32/taskkill.exe" /PID $p.Id /T /F | Out-Null
+            if(-not $p.HasExited){$p.Kill()}
+            $p.WaitForExit()
+        }
         $stdout=$out.Result;$stderr=$err.Result
-        $pattern='(?m)^[0-9a-fA-F]+:'+ [regex]::Escape($test.test) + ':.*? (?<executed>\d+) tests executed \((?<todo>\d+) marked as todo, (?<flaky>\d+) as flaky, (?<failures>\d+) failures?\), (?<skipped>\d+) skipped\.'
+        # Subprocesses may print summaries for the same test name. Require
+        # the launched process's PID rather than accepting a child's result.
+        $testPid='{0:x4}' -f $p.Id
+        $pattern='(?im)^'+$testPid+':'+ [regex]::Escape($test.test) + ':.*? (?<executed>\d+) tests executed \((?<todo>\d+) marked as todo, (?<flaky>\d+) as flaky, (?<failures>\d+) failures?\), (?<skipped>\d+) skipped\.'
         $summary=[regex]::Match($stdout,$pattern)
         $counts=$null
         if($summary.Success){
@@ -49,7 +59,7 @@ foreach($name in $Tests) {
         }
         $loaded=$native -or $stdout -match 'WINE_LOAD_APPLICATION status=00000000'
         $completed=-not $timeout -and $summary.Success -and $loaded
-        $rows+=[pscustomobject]@{name=$name;native=$native;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;platform=$p.StartInfo.EnvironmentVariables['WINETEST_PLATFORM'];exitCode=$p.ExitCode;timedOut=$timeout;completed=$completed;passed=($completed -and $p.ExitCode -eq 0 -and $counts.failures -eq 0);counts=$counts;unsupportedServices=@([regex]::Matches($stderr,'UNIMPLEMENTED NT service [0-9a-fA-F]+')|ForEach-Object {$_.Value}|Sort-Object -Unique);stdoutPath="$mode-$name.stdout.txt";stderrPath="$mode-$name.stderr.txt"}
+        $rows+=[pscustomobject]@{name=$name;native=$native;pid=$p.Id;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;platform=$p.StartInfo.EnvironmentVariables['WINETEST_PLATFORM'];exitCode=$p.ExitCode;timedOut=$timeout;completed=$completed;passed=($completed -and $p.ExitCode -eq 0 -and $counts.failures -eq 0);counts=$counts;unsupportedServices=@([regex]::Matches($stderr,'UNIMPLEMENTED NT service [0-9a-fA-F]+')|ForEach-Object {$_.Value}|Sort-Object -Unique);stdoutPath="$mode-$name.stdout.txt";stderrPath="$mode-$name.stderr.txt"}
         [IO.File]::WriteAllText("$results/$mode-$name.stdout.txt",$stdout)
         [IO.File]::WriteAllText("$results/$mode-$name.stderr.txt",$stderr)
         $p.Dispose()

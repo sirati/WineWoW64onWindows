@@ -102,6 +102,21 @@ __declspec(dllexport) NTSTATUS WINAPI ProbeSetDllDirectory(const WCHAR *path)
     UNICODE_STRING name;RtlInitUnicodeString(&name,path);
     return LdrSetDllDirectory(&name);
 }
+__declspec(dllexport) NTSTATUS WINAPI ProbeInitProcessParameters(void)
+{
+    PEB *peb=NtCurrentTeb()->Peb;
+    RTL_USER_PROCESS_PARAMETERS *initial=peb->ProcessParameters;
+    HANDLE directory=initial->CurrentDirectory.Handle;
+    /* Wine normally calls this from its first loader_init pass. Our
+     * bootstrap already created that loader state, so run the original
+     * initializer once the main image exists. It moves startup parameters
+     * and the environment into Wine's heap and initializes directory state. */
+    ((void (__cdecl *)(void))(wine_ntdll+WINE_NTDLL_init_user_process_params))();
+    if(peb->ProcessParameters==initial)return STATUS_NO_MEMORY;
+    if(directory)NtClose(directory);
+    *(WCHAR **)(wine_ntdll+WINE_NTDLL_default_load_path)=peb->ProcessParameters->DllPath.Buffer;
+    return STATUS_SUCCESS;
+}
 __declspec(dllexport) NTSTATUS WINAPI ProbeRelocateApplication(void)
 {
     void *module=NtCurrentTeb()->Peb->ImageBaseAddress;

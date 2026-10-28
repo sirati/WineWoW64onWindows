@@ -11,7 +11,7 @@ in runCommand "wine-11.0-upstream-x86-tests" {
   mkdir -p source $out
   tar -xf ${source} -C source --strip-components=1
   compiler=${cc}/bin/i686-w64-mingw32-gcc
-  "$compiler" -O2 -D__WINE_PE_BUILD -D__WINESRC__ -I source/include -include _mingw.h \
+  "$compiler" -O2 -D__USE_MINGW_ANSI_STDIO=0 -D__WINE_PE_BUILD -D__WINESRC__ -I source/include -include _mingw.h \
     -c source/dlls/winecrt0/debug.c -o debug.o
   # The standalone runner uses console declarations that each test source
   # need not include. Load NT status definitions before suppressing the
@@ -27,17 +27,19 @@ in runCommand "wine-11.0-upstream-x86-tests" {
   #include "winternl.h"
   EOF
   for test in ntdll/rtlbitmap ntdll/large_int ntdll/error ntdll/rtlstr \
-      ntdll/string ntdll/time ntdll/env kernel32/fiber kernel32/heap \
+      ntdll/string ntdll/time ntdll/env ntdll/exception ntdll/virtual ntdll/thread \
+      kernel32/fiber kernel32/heap \
       kernel32/thread kernel32/sync msvcrt/cpp; do
     module="''${test%/*}"
     name="''${test#*/}"
-    "$compiler" -O2 -g -fno-builtin -DSTANDALONE -D__WINE_PE_BUILD \
+    "$compiler" -O2 -g -fno-builtin -D__USE_MINGW_ANSI_STDIO=0 -DSTANDALONE -D__WINE_PE_BUILD \
       -D__WINESRC__ -I source/include -iquote source/include/msvcrt \
       -include ./test-preinclude.h \
       -nostdlib "source/dlls/$module/tests/$name.c" debug.o \
       "$($compiler -print-file-name=crt2.o)" "$($compiler -print-file-name=crtbegin.o)" \
-      -Wl,--dynamicbase,--nxcompat,--no-insert-timestamp -lmingw32 -lgcc -lgcc_eh -lmingwex \
-      -lmsvcrt -lkernel32 -luser32 -ladvapi32 -lntdll \
+      -Wl,--dynamicbase,--nxcompat,--no-insert-timestamp,--start-group \
+      -lmingw32 -lgcc -lgcc_eh -lmingwex -lmsvcrt -lkernel32 -luser32 -ladvapi32 -lntdll \
+      -Wl,--end-group \
       "$($compiler -print-file-name=crtend.o)" -o "$out/$module-$name.exe"
   done
   python3 - "$out" ${source} <<'PY'
