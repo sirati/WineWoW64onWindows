@@ -14,13 +14,16 @@ query also have verified fixes. Alignment-exception dispatch and the remaining
 memory-accounting differences still require work.
 The protected-syscall wrapper passes native plus ten Wine conversion-fault
 controls, with a corrected prior-runtime crash control. The full thread suite
-now reaches later failures and a timeout. Group-affinity creation needs a
-32/64-bit attribute conversion; its cross-built fix awaits Windows validation.
+now reaches later failures and a timeout. The group-affinity conversion passes
+native plus ten Wine controls on cd13e0f, with five prior-runtime failures.
 The legacy pagefile fixture passes on an 8 GiB VM where unsigned addition
-bypasses Wine's Photoshop clamp. That does not close the low-memory bug.
-The T3 project and guest-access blockers are resolved. Fifteen focused suite
-exits were lost by a test helper despite 87 passing process records; the new
-incremental runner must close that evidence gap. See the upstream report.
+bypasses Wine's Photoshop clamp, and fails all five Wine runs on 2 GiB with
+the exact clamp formula. Native passes. Old-binary controls remain pending.
+The T3 project and guest-access blockers are resolved. The incremental runner
+closes the earlier lost-suite-exit gap with twenty-two child exits 0 and 139
+fully identified process records. A wake-all versus wake-single diagnostic
+isolates the missing batched-alert wake route, without completing the whole
+upstream thread suite or adding a guest service. See the upstream report.
 
 | Area | Current result | Likely fix | Difficulty |
 |---|---|---|---|
@@ -32,7 +35,8 @@ incremental runner must close that evidence gap. See the upstream report.
 | Provider-specific Winsock controls | Standard TCP/UDP, DNS, poll/event, overlapped, IOCP, AcceptEx, ConnectEx, TransmitFile and WSARecvMsg IP_PKTINFO pass. Unknown provider ioctls return `STATUS_NOT_SUPPORTED`. | Add one native control adapter at a time with a matching 32-bit marshalling test. | Medium per control |
 | Forced issuer termination | 5c02e38 passes 100 original wait-entry controls, half with tracing, plus native and ten Wine --spin controls. Corrected event/pipe prerequisites and notification, APC, socket, thread and callback regressions pass. See docs/validation-5c02e38.txt. | The demonstrated file-registry and CRT diagnostic lock failures are fixed. Arbitrary termination while another adapter or native library owns a lock remains unverified. | High for arbitrary termination |
 | Concurrent thread-context lifetime | Storage now survives until the final thread-record reference. Native plus thirty Wine thread_exit_context32 runs pass, each racing context queries against termination across 64 lifetimes. Full 22ec829 runtime regression also passes. | The demonstrated storage-lifetime gap is fixed. Other information classes and unrelated services remain outside current coverage. | Verified |
-| Thread creation with group affinity | The fixture passes natively and fails all five 0a5ba02 Wine controls with error 87 after Wine loading. The original process-attribute converter forwards the 12-byte x86 structure to a native API expecting 16 bytes. | A small conversion beside Wine's existing attribute conversions cross-builds. Native, prior-runtime and patched controls are required before accepting it. | Low; Windows validation pending |
+| Thread creation with group affinity | cd13e0f passes native plus ten Wine controls for full/single-CPU masks and invalid CPU rejection. The same fixture fails all five 0a5ba02 Wine controls with error 87 after loading. | Convert the 12-byte x86 group-affinity attribute to its 16-byte native form beside Wine's existing attribute conversions. The full thread suite remains incomplete for separate reasons. | Verified for tested scope |
+| Legacy memory-status clamp | Native passes on 2 GiB; all five Wine runs fail with values matching the Photoshop workaround exactly. The 8 GiB runs bypass the clamp through unsigned wrap and pass. | Preserve the old workaround while comparing native behavior for older and modern PE versions. Keep the separate Sacrifice total-pagefile cap distinct. | Low code cost; medium compatibility risk |
 | Converted fiber surviving thread exit | 28fc57f completes the upstream fiber suite, with only two subprocess failures. Ten Wine survivor controls pass and ten pre-fix runs crash. The focused fixture also crashes in native Windows ntdll; it is not a passing native control. | Keep the stack selected by Wine's final DeallocationStack under the corresponding fiber's ownership. Wine DeleteFiber releases the retained stack. | Verified Wine regression |
 | Extended APCEx2/reserve-object variants | Basic, initial suspended-thread, nested, alertable and I/O completion APC paths pass. APCEx2 reserve-object combinations are additional services outside the current scope. | Reuse Wine's APC frame and continuation code, then add native reserve-object bookkeeping. | Medium |
 | Less common thread information classes | Guest thread enumeration, TLS clearing, suspended creation and remote context subset pass. Other thread information classes are not mapped. | Add mappings only where an application needs them, using Wine's existing 32-bit structures. | Low to medium |

@@ -61,7 +61,7 @@ Expanded suites and next fixes
 | Virtual allocation zero-bits/size assertions | Native x86 and x64 return the same STATUS_CONFLICTING_ADDRESSES for ZeroBits=20 and size 0x10000 after zero-length decommit. The test permits these known Windows variations only outside Wine. | Native behavior confirmed; raw assertions retained |
 | Full fiber suite | Port completes 32,956 checks with only two subprocess-related failures. Native reports 4,115 private FLS-layout assertions. The focused survivor fixture crashes natively and passes in Wine; preserve that qualification. | Completed in-scope suite cases |
 | Full exception suite | Guest alignment faults recurse in native Windows ntdll while it constructs the exception frame, before the VEH is called. A later handler cannot fix this boundary. | High |
-| Full kernel32 thread suite | Protected conversion-fault recovery passes focused Windows controls. The full suite reaches later context, selector and affinity assertions, then times out without its parent summary. A group-affinity creation conversion is cross-built; its Windows validation is pending. | Medium; supported failures remain |
+| Full kernel32 thread suite | Protected conversion-fault recovery and group-affinity creation pass focused Windows controls. The full suite reaches later context, selector and activation-context failures, then times out without its parent summary. | Medium; supported failures remain |
 | Timezone names | Both native x86 and x64 return the same direct names as the port. The test accepts these on Windows through broken(), but rejects them on Wine. | Native behavior confirmed; raw assertions retained |
 | Hypervisor shared page | Convert the live native mapping's pointer through Wine's existing thunk. The time suite now completes 10,667 checks instead of crashing. | Completed query conversion |
 | Missing sync/thread/process NT services | SignalObjectAndWait and subprocess creation have dependent failures. Only causally established service failures are excluded. | Excluded where established |
@@ -378,7 +378,7 @@ primary-prepared frozen inputs. Guest access succeeded with explicit argv,
 forward-slash Windows paths and encoded PowerShell on a 4-vCPU, 8 GiB VM.
 Earlier malformed shell paths and share probes do not establish a VM defect.
 
-Thread group-affinity conversion, Windows validation pending
+Verified thread group-affinity conversion, cd13e0f
 
 The original ps_attributes_32to64 helper forwards a 12-byte GROUP_AFFINITY32
 to native NtCreateThreadEx, which expects a 16-byte GROUP_AFFINITY. The
@@ -389,4 +389,73 @@ The small follow-up adds this conversion beside Wine's existing process
 attribute conversions, with temporary storage owned by the protected syscall
 frame. It preserves Wine's thread/loader algorithms and adds no NT service.
 The fixture covers full and single-CPU masks and rejects an invalid CPU.
-The Nix cross build passes; the conversion fix has not yet run on Windows.
+Candidate: cd13e0f23f42ed77c91eb72327c1c724513abce6, 130 manifest files.
+Bundle SHA256: e2b24279d1753010dfa326674bc4c3f9ccd7879f111ced1d81f8cc033ff59542.
+Host SHA256: E7C64E156F7493DA96CA56138E8C7B5A59F6F4C709C962F461229060D718BF22.
+Luna 6 verified the manifest inside the VM. Primary raw inspection accepts
+native plus ten Wine affinity runs with the same fixture hash as the failing
+prior-runtime control. Both full and single-CPU masks reach the worker, and
+invalid CPU masks are rejected. The exact success marker, intended actual
+arguments, numeric exits 0, no timeouts and Wine load markers are present.
+
+The incremental focused runner completes all twenty-two direct child suites,
+each with its own numeric exit 0 and fixture-report hash. Their 139 process
+rows comprise nineteen native controls and 120 Wine runs. Primary inspection
+checks every intended executable/argument, exact fixture marker, numeric exit,
+timeout and Wine load marker. This closes the earlier missing-suite-exit gap.
+The known native fiber-survivor crash remains qualified; it runs Wine-only.
+Issuer-exit controls include the actual --spin arguments and mode marker.
+
+Cross checks pass 29/29. All seven required exception/lifecycle cases pass;
+the optional Wine nested-return diagnostic retains its 0xc0000005 exit. The
+fifteen required corpus commands pass, with 32 captured UTF-8 stream hashes
+and two matching round-trip hashes. Async/event and pipe each pass native
+plus five Wine runs with their peers, launch metadata and separate timeouts.
+All six outer suite runners exit 0, as do the twenty-two focused children.
+
+The original thread suite remains incomplete. Native again completes 1,041
+checks with 21 failures. Wine reaches the activation-context failure at
+thread.c:2133 and times out at 60 seconds without a parent summary. This run
+does not reach the later affinity assertions, so their absence is not proof
+they pass. The separate focused native/prior-runtime/patched control is the
+evidence for the affinity fix. No full upstream thread pass is claimed.
+
+The Nix runtime/tests build and flake checks pass. The VM was destroyed after
+retrieving 194 evidence files. Local raw evidence and primary audit:
+evidence/affinity-cd13e0f/vm-results/
+evidence/affinity-cd13e0f/primary-complete-audit.json
+
+Low-memory and condition-variable controls on cd13e0f
+
+A separate 2 GiB, 4-vCPU VM verifies the same manifest before and after tests.
+Native memory_status32 passes; all five Wine runs exit 72 after completing
+three samples, with Wine load markers and no runner timeouts. Every Wine
+legacy available-pagefile result equals 0x80000000 minus legacy available
+physical memory minus one, establishing the existing Photoshop clamp. These
+available-pagefile values are below MAXDWORD, about 1.4 GiB before clamping.
+The child's summary incorrectly called them above MAXDWORD; raw values and
+the primary audit take precedence. Native legacy/extended samples agree.
+
+The original heap suite completes again. Native passes 281,468 checks; Wine
+executes 278,583 checks, exits 23, and reports the pagefile assertion at
+heap.c:3685 plus twenty-two established subprocess assertions. Both parent
+PID summaries and suite-child exit 1 are retained. Preserve the Photoshop
+and separate Sacrifice workarounds until old-binary controls support a change.
+
+A separately hashed, Linux-built wake_condition32 diagnostic compares a
+single condition-variable waiter using wake-all and wake-single. Native
+passes both. Five Wine wake-all runs load, print mode=all and exit 81 after
+their bounded two-second WAIT_TIMEOUT, without runner timeouts. Five Wine
+--single runs pass with mode=single, their exact marker and exits 0. The
+two runner children exit 1 and 0 respectively. The host hash is unchanged.
+Original Wine RtlWakeAddressAll calls NtAlertMultipleThreadByThreadId, guest
+service 0x64, after removing waiters from its queue. Its wake-single route
+uses the supported single-thread alert. These controls establish the failing
+batched-alert wake path. They do not alone establish every cause of the
+separate upstream thread-suite wait, and no extra guest service is added.
+
+The 2 GiB VM was destroyed after evidence retrieval. Raw evidence:
+/home/sirati/.t3/worktrees/WineWoW64onWindows/t3-ce0cb057/evidence/vm-results/
+Primary audit: evidence/affinity-cd13e0f/primary-low-memory-audit.json.
+Native context-status and PE 3.10/6.0 memory controls are prepared as separate
+test inputs. Their results are still pending; no further fix is adopted here.
