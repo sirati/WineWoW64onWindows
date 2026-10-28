@@ -18,4 +18,5 @@ void probe_thread_unregister(void);
 NTSTATUS WINAPI probe_NtQueryInformationThread(HANDLE,THREADINFOCLASS,void *,ULONG,ULONG *);
 NTSTATUS WINAPI probe_NtSetInformationThread(HANDLE,THREADINFOCLASS,void *,ULONG);
 NTSTATUS WINAPI probe_NtGetNextThread(HANDLE,HANDLE,ACCESS_MASK,ULONG,ULONG,HANDLE *);
+void probe_system_process_tebs(void *,ULONG);
 #endif

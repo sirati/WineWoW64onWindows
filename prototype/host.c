@@ -110,6 +110,7 @@ static void set_guest_address_limit(USHORT characteristics)
 NTSTATUS WINAPI probe_NtQuerySystemInformation(SYSTEM_INFORMATION_CLASS type,void *info,ULONG size,ULONG *returned)
 {
     NTSTATUS status=NtQuerySystemInformation(type,info,size,returned);
+    if(!status&&type==SystemExtendedProcessInformation)probe_system_process_tebs(info,size);
     if(!status&&type==SystemEmulationBasicInformation)
         ((SYSTEM_BASIC_INFORMATION *)info)->HighestUserAddress=(void *)highest_user_address;
     return status;

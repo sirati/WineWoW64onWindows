@@ -224,6 +224,35 @@ NTSTATUS WINAPI probe_RtlWow64GetThreadSelectorEntry(HANDLE handle,THREAD_DESCRI
     return status;
 }
 NTSTATUS (WINAPI *__imp_probe_RtlWow64GetThreadSelectorEntry)(HANDLE,THREAD_DESCRIPTOR_INFORMATION *,ULONG,ULONG *)=probe_RtlWow64GetThreadSelectorEntry;
+void probe_system_process_tebs(void *info,ULONG size)
+{
+    /* Wine's Unix backend fills TebBase from its own thread records before
+     * put_system_proc_info converts it to x86. Use the same guest records,
+     * since Windows reports each host thread's separate native x64 TEB. */
+    ULONG offset=0;
+    AcquireSRWLockShared(&threads_lock);
+    while(size-offset>=offsetof(SYSTEM_PROCESS_INFORMATION,ti))
+    {
+        SYSTEM_PROCESS_INFORMATION *process=(void *)((BYTE *)info+offset);
+        ULONG length=process->NextEntryOffset?process->NextEntryOffset:size-offset;
+        if(length>size-offset||length<offsetof(SYSTEM_PROCESS_INFORMATION,ti))break;
+        if(process->UniqueProcessId==ULongToHandle(GetCurrentProcessId())&&
+           process->dwThreadCount<=(length - offsetof(SYSTEM_PROCESS_INFORMATION,ti))/sizeof(SYSTEM_EXTENDED_THREAD_INFORMATION))
+        {
+            SYSTEM_EXTENDED_THREAD_INFORMATION *list=(void *)process->ti;
+            for(ULONG i=0;i<process->dwThreadCount;i++)
+                for(LIST_ENTRY *entry=threads.Flink;entry!=&threads;entry=entry->Flink)
+                {
+                    struct guest_thread *thread=CONTAINING_RECORD(entry,struct guest_thread,entry);
+                    if(list[i].ThreadInfo.ClientId.UniqueThread==ULongToHandle(thread->id))
+                    {list[i].TebBase=thread->teb;break;}
+                }
+        }
+        if(!process->NextEntryOffset)break;
+        offset+=process->NextEntryOffset;
+    }
+    ReleaseSRWLockShared(&threads_lock);
+}
 NTSTATUS WINAPI probe_NtQueryInformationThread(HANDLE handle,THREADINFOCLASS type,void *info,ULONG size,ULONG *returned)
 {
     NTSTATUS status=NtQueryInformationThread(handle,type,info,size,returned);
