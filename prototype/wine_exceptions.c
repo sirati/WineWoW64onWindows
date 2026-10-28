@@ -95,12 +95,15 @@ static NTSTATUS remote_thread_context(HANDLE thread,HANDLE process,ULONG_PTR add
                get_thread_wow64_context(GetCurrentThread(),context,sizeof(*context));
     TlsSetValue(target_slot,previous);
     if(!status&&!set)
+    {
         struct guest_cpu *target=context_cpu();
         DWORD reporting=target&&target->context_state==PROBE_CONTEXT_SERVICE?CONTEXT_SERVICE_ACTIVE:
                         target&&target->context_state==PROBE_CONTEXT_EXCEPTION?CONTEXT_EXCEPTION_ACTIVE:0;
         set_context_exception_reporting_flags(&context->ContextFlags,native.SegCs==0x23?0:reporting);
+    }
     if(!status&&set)
     {
+        cpu.context_state=0;
         DWORD flags=context->ContextFlags&~CONTEXT_i386;
         if(flags&0x20)cpu.frame.xstate.Mask|=3;
         else if(flags&0x8)cpu.frame.xstate.Mask|=1;
