@@ -716,7 +716,10 @@ void probe_check_process_exit(I386_CONTEXT *context,DWORD code)
     sp[0]=(ULONG_PTR)guest_return_gate;
     probe_run32(&cpu.ctx);
     DWORD written;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),output,length,&written,NULL);
-    ExitProcess(code);
+    /* Wine RtlExitUserProcess terminates the process after guest shutdown.
+     * Native ExitProcess would run a second DLL shutdown after the native
+     * window threads have been stopped, potentially waiting on their locks. */
+    for(;;)NtTerminateProcess(GetCurrentProcess(),code);
 }
 struct guest_thread_job {
     struct guest_cpu cpu;
