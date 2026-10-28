@@ -26,7 +26,7 @@ extern void probe_set_bop_code(void *);
 extern void probe_cpu_init(USHORT,USHORT,USHORT);
 extern BOOL probe_recover_fs(EXCEPTION_POINTERS *);
 extern void probe_resume_guest_context(CONTEXT *);
-extern void probe_exception_init(void *,WORD);
+extern void probe_exception_init(void *,void *,WORD);
 extern void probe_apc_init(void *);
 extern BOOL probe_dispatch_guest_exception(EXCEPTION_POINTERS *);
 extern void probe_exception_thread_cleanup(void);
@@ -1080,7 +1080,7 @@ int main(int argc,char **argv)
         if(!hook||!exit_gate||!exit)fail("Wine process return hook");
         *exit_gate=(DWORD)(ULONG_PTR)&gate[2];*hook=(DWORD)(ULONG_PTR)exit;
     }
-    if(wine_components)probe_exception_init(guest_export(nt,"KiUserExceptionDispatcher",0),ss);
+    if(wine_components)probe_exception_init(guest_export(nt,"KiUserExceptionDispatcher",0),guest_export(nt,"KiRaiseUserExceptionDispatcher",0),ss);
     if(wine_components)probe_apc_init(guest_export(nt,"KiUserApcDispatcher",0));
     *(DWORD *)guest_export(nt,"__wine_syscall_dispatcher",0)=(DWORD)(uintptr_t)&gate[0];
     { void *u=guest_export(nt,"__wine_unix_call_dispatcher",0); if(u) *(DWORD *)(uintptr_t)u=(DWORD)(uintptr_t)&gate[1];

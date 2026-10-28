@@ -39,7 +39,7 @@ void (WINAPI *pBTCpuNotifyUnmapViewOfSection)(void *,BOOL,NTSTATUS);
 void (WINAPI *pBTCpuThreadTerm)(HANDLE,LONG);
 /* Windows TLS holds a temporary-allocation frame per active dispatch. This
  * replaces Wine's Unix host storage, while retaining Wine's actual thunks. */
-struct temp_frame { void *blocks[256];unsigned count; };
+struct temp_frame { void *blocks[256];unsigned count;UINT service; };
 static DWORD temp_slot;
 void probe_backend_init(void)
 { temp_slot=TlsAlloc();if(temp_slot==TLS_OUT_OF_INDEXES) ExitProcess(94); }
@@ -230,12 +230,10 @@ extern NTSTATUS WINAPI wow64_NtSuspendThread(UINT *),wow64_NtResumeThread(UINT *
 extern NTSTATUS WINAPI wow64_NtCreateThreadEx(UINT *),wow64_NtTerminateThread(UINT *);
 extern NTSTATUS WINAPI wow64_NtQueryObject(UINT *),wow64_NtSetInformationObject(UINT *);
 extern NTSTATUS WINAPI wow64_NtTestAlert(UINT *);
-NTSTATUS WINAPI Wow64SystemServiceEx(UINT n,UINT *a)
+static NTSTATUS WINAPI dispatch_nt(UINT *a)
 {
     NTSTATUS status;
-    struct temp_frame frame={0},*previous=TlsGetValue(temp_slot);
-    TlsSetValue(temp_slot,&frame);
-    InterlockedIncrement((LONG *)&probe_nt_calls);
+    UINT n=((struct temp_frame *)TlsGetValue(temp_slot))->service;
     if(probe_trace) diagnostic("NT_CALL %x\n",n);
     if(probe_trace&&n==0x33)
     {
@@ -325,6 +323,17 @@ NTSTATUS WINAPI Wow64SystemServiceEx(UINT n,UINT *a)
     case NR_DELETE_FILE: status=wow64_NtDeleteFile(a); break;
     default: diagnostic("UNIMPLEMENTED NT service %x\n",n);status=STATUS_NOT_IMPLEMENTED;break;
     }
+    return status;
+}
+extern NTSTATUS wow64_syscall(UINT *,ULONG_PTR);
+NTSTATUS WINAPI Wow64SystemServiceEx(UINT n,UINT *a)
+{
+    struct temp_frame frame={.service=n},*previous=TlsGetValue(temp_slot);
+    TlsSetValue(temp_slot,&frame);
+    InterlockedIncrement((LONG *)&probe_nt_calls);
+    /* Wine's original SEH wrapper converts faults while marshalling guest
+     * arguments into status returns before temporary storage is released. */
+    NTSTATUS status=wow64_syscall(a,(ULONG_PTR)dispatch_nt);
     while(frame.count) free(frame.blocks[--frame.count]);
     TlsSetValue(temp_slot,previous);
     if(probe_trace) diagnostic("NT_RETURN %x status=%08lx\n",n,(unsigned long)status);

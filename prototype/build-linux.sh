@@ -22,6 +22,7 @@ if [[ ${PROBE_LOADER_SOURCE_PATCHED:-0} != 1 ]]; then
   python3 prototype/patch-wine-loader.py prototype/out/stock-wine/ntdll.dll
 fi
 python3 prototype/extract-exceptions.py
+python3 prototype/select-wine-thunks.py
 python3 prototype/extract-native-sockets.py
 source prototype/build-wine-sockets.sh
 perl -0777 -ne '/(^static inline void set_async_iosb\([^\n]*\)\n\{.*?^\})/ms or die "Wine async IOSB helper missing";print "$1\n";' \
@@ -76,7 +77,7 @@ python3 prototype/check-transition-image.py prototype/out/guest/transition32.dll
 guest_flags=(-O2 -D_WIN32_WINNT=0x0601 -ffreestanding -fno-stack-protector -nostdlib)
 "$cc32" "${guest_flags[@]}" prototype/hello32.c -lkernel32 prototype/out/libguest_kernel32.a \
   -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/hello32.exe
-for test in stress32 teb32 tls32 tls_slots32 threads32 files32 dynamic32 file_semantics32 heap32 return32 concurrent32 fs_recovery32 async_event32 pipe_control32 apc32 io_notify32 io_thread_exit32 thread_context32 thread_exit_context32 thread_create32 thread_priority32 xstate32 xstate_components32 fiber32 fiber_thread_exit32 wine_debug32 tick_count32 stack_growth32 mitigation32; do
+for test in stress32 teb32 tls32 tls_slots32 threads32 files32 dynamic32 file_semantics32 heap32 return32 concurrent32 fs_recovery32 async_event32 pipe_control32 apc32 io_notify32 io_thread_exit32 thread_context32 thread_exit_context32 thread_create32 thread_priority32 thunk_fault32 xstate32 xstate_components32 fiber32 fiber_thread_exit32 wine_debug32 tick_count32 stack_growth32 mitigation32; do
   test_flags=();if [[ "$test" == xstate32 ]];then test_flags+=( -msse2 );fi
   "$cc32" "${guest_flags[@]}" "${test_flags[@]}" prototype/$test.c -lkernel32 prototype/out/libguest_kernel32.a \
     -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/$test.exe
@@ -134,7 +135,7 @@ for test in seh_fault32 stack_overflow32 fiber_overflow32; do
   "$($cc32 -print-file-name=libmsvcrt.a)" "$($cc32 -print-file-name=libkernel32.a)"
 done
 
-"$cc64" "${flags[@]}" "${inc[@]}" -fno-asynchronous-unwind-tables -fno-unwind-tables \
+"$cc64" "${flags[@]}" "${inc[@]}" \
   -c prototype/wine_close.c -o prototype/out/wine-close.o
 
 for unit in file process registry security sync syscall system virtual; do
@@ -155,16 +156,17 @@ for unit in file process registry security sync syscall system virtual; do
       -DpBTCpuNotifyUnmapViewOfSection=wine_wow64_pBTCpuNotifyUnmapViewOfSection)
   fi
   if [[ "$unit" == process ]]; then
-    extra+=( -fno-asynchronous-unwind-tables -fno-unwind-tables )
     extra+=( -DNtQueryInformationProcess=probe_NtQueryInformationProcess )
     extra+=( -DNtSetInformationProcess=probe_NtSetInformationProcess -DNtQueueApcThread=probe_NtQueueApcThread -DNtCreateThreadEx=probe_NtCreateThreadEx -DNtTerminateThread=probe_NtTerminateThread -DNtQueryInformationThread=probe_NtQueryInformationThread -DNtSetInformationThread=probe_NtSetInformationThread -DNtGetNextThread=probe_NtGetNextThread )
   fi
-  if [[ "$unit" == registry || "$unit" == system || "$unit" == security ]]; then extra+=( -fno-asynchronous-unwind-tables -fno-unwind-tables );fi
   if [[ "$unit" == system ]]; then extra+=( -DNtQuerySystemInformation=probe_NtQuerySystemInformation );fi
   if [[ "$unit" == sync ]]; then extra+=( -DNtWaitForSingleObject=probe_NtWaitForSingleObject -DNtWaitForMultipleObjects=probe_NtWaitForMultipleObjects -DNtDuplicateObject=probe_NtDuplicateObject );fi
   if [[ "$unit" == virtual ]]; then extra+=( -DNtFreeVirtualMemory=probe_NtFreeVirtualMemory -DNtGetNlsSectionPtr=probe_NtGetNlsSectionPtr -DNtInitializeNlsFiles=probe_NtInitializeNlsFiles -DNtQueryVirtualMemory=probe_NtQueryVirtualMemory );fi
   if [[ "$unit" == file ]]; then extra+=( -DNtDeviceIoControlFile=probe_NtDeviceIoControlFile -DNtLockFile=probe_NtLockFile -DNtOpenFile=probe_NtOpenFile -DNtSetInformationFile=probe_NtSetInformationFile -DNtReadFile=probe_NtReadFile -DNtWriteFile=probe_NtWriteFile -DNtCancelIoFileEx=probe_NtCancelIoFileEx -DNtFsControlFile=probe_NtFsControlFile -DNtCreateNamedPipeFile=probe_NtCreateNamedPipeFile );fi
-  "$cc64" "${flags[@]}" "${extra[@]}" "${inc[@]}" -c wine-11.0-source/dlls/wow64/$unit.c -o prototype/out/wine-$unit.o
+  unit_source=prototype/out/wine-$unit.c
+  if [[ "$unit" == syscall ]];then unit_source=wine-11.0-source/dlls/wow64/syscall.c;fi
+  "$cc64" "${flags[@]}" "${extra[@]}" "${inc[@]}" -Iwine-11.0-source/dlls/wow64 \
+    -c "$unit_source" -o prototype/out/wine-$unit.o
 done
 "$cc64" "${flags[@]}" "${inc[@]}" prototype/host.c prototype/backend.c prototype/wine_cpu_adapter.c prototype/wine_exceptions.c prototype/wine_extended_context.c prototype/xstate.c prototype/native_io.c prototype/native_sockets.c prototype/native_socket_io.c prototype/native_threads.c \
   prototype/out/wine-file.o prototype/out/wine-process.o prototype/out/wine-sync.o prototype/out/wine-virtual.o \

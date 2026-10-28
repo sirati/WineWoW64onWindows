@@ -139,6 +139,8 @@ static NTSTATUS WINAPI set_context(HANDLE thread,HANDLE process,void *unused,voi
 { (void)process;(void)unused;return probe_RtlWow64SetThreadContext(thread,context); }
 static NTSTATUS (WINAPI *pBTCpuGetContext)(HANDLE,HANDLE,void *,void *)=get_context;
 static NTSTATUS (WINAPI *pBTCpuSetContext)(HANDLE,HANDLE,void *,void *)=set_context;
+static void *(WINAPI *pKiRaiseUserExceptionDispatcher)(void);
+#include "out/wine-protected-syscall.inc"
 static SYSTEM_DLL_INIT_BLOCK init_block;
 SYSTEM_DLL_INIT_BLOCK *pLdrSystemDllInitBlock=&init_block;
 static WOW64INFO info={.CpuFlags=WOW64_CPUFLAGS_MSFT64};
@@ -197,11 +199,12 @@ void probe_exception_thread_cleanup(void)
     probe_thread_exception_state(NULL);
     HeapFree(GetProcessHeap(),0,state);
 }
-void probe_exception_init(void *dispatcher,WORD ss)
+void probe_exception_init(void *dispatcher,void *raise_dispatcher,WORD ss)
 {
     state_slot=TlsAlloc();if(state_slot==TLS_OUT_OF_INDEXES)ExitProcess(94);
     target_slot=TlsAlloc();if(target_slot==TLS_OUT_OF_INDEXES)ExitProcess(94);
     ss32_sel=ds64_sel=ss;init_block.pKiUserExceptionDispatcher=(ULONG_PTR)dispatcher;
+    pKiRaiseUserExceptionDispatcher=raise_dispatcher;
 }
 BOOL probe_dispatch_guest_exception(EXCEPTION_POINTERS *p)
 {
