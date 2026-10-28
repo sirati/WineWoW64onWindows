@@ -264,6 +264,12 @@ extern NTSTATUS WINAPI wow64_NtOpenProcess(UINT *),wow64_NtTerminateProcess(UINT
 extern NTSTATUS WINAPI wow64_NtReadVirtualMemory(UINT *),wow64_NtWriteVirtualMemory(UINT *),wow64_NtAllocateVirtualMemoryEx(UINT *);
 extern NTSTATUS WINAPI wow64_NtDeleteKey(UINT *),wow64_NtDeleteValueKey(UINT *);
 extern NTSTATUS WINAPI wow64_NtQuerySystemInformationEx(UINT *),wow64_NtConvertBetweenAuxiliaryCounterAndPerformanceCounter(UINT *);
+extern NTSTATUS WINAPI wow64_NtCreateKeyedEvent(UINT *);
+extern NTSTATUS WINAPI wow64_NtOpenKeyedEvent(UINT *);
+extern NTSTATUS WINAPI wow64_NtWaitForKeyedEvent(UINT *);
+extern NTSTATUS WINAPI wow64_NtReleaseKeyedEvent(UINT *);
+extern NTSTATUS WINAPI wow64_NtSetEventBoostPriority(UINT *);
+extern NTSTATUS WINAPI wow64_NtAlertThread(UINT *);
 static NTSTATUS WINAPI dispatch_nt(UINT *a)
 {
     NTSTATUS status;
@@ -291,6 +297,12 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
     if(probe_trace&&n==0x27)diagnostic("SET_FILE handle=%x class=%u len=%u data=%08lx\n",a[0],a[4],a[3],*(DWORD *)(uintptr_t)a[2]);
     switch(n)
     {
+    case 0x007b: status=wow64_NtCreateKeyedEvent(a);break;
+    case 0x00b3: status=wow64_NtOpenKeyedEvent(a);break;
+    case 0x0101: status=wow64_NtWaitForKeyedEvent(a);break;
+    case 0x00d2: status=wow64_NtReleaseKeyedEvent(a);break;
+    case 0x002d: status=wow64_NtSetEventBoostPriority(a);break;
+    case 0x0066: status=wow64_NtAlertThread(a);break;
     case 0x0058: status=wow64_NtOpenDirectoryObject(a);break;
     case 0x0077: status=wow64_NtCreateDirectoryObject(a);break;
     case 0x00bc: status=wow64_NtQueryDirectoryObject(a);break;
