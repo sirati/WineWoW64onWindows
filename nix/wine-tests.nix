@@ -28,6 +28,10 @@ in runCommand "wine-11.0-upstream-x86-tests" {
     -Wl,--entry,_DllMain@12,--dynamicbase,--nxcompat,--no-insert-timestamp -o testdll.dll
   printf '"testdll.dll" TESTDLL "testdll.dll"\n' > ntdll-resource.rc
   ${binutils}/bin/i686-w64-mingw32-windres -i ntdll-resource.rc -O coff -o ntdll-res.o
+  # MinGW supplies an ISO swprintf wrapper instead of this legacy import.
+  # The CRT test explicitly requests the Microsoft two-argument export.
+  printf 'LIBRARY msvcrt.dll\nEXPORTS\nswprintf\n' > legacy-crt.def
+  ${binutils}/bin/i686-w64-mingw32-dlltool --input-def legacy-crt.def --output-lib legacy-crt.a
   "$compiler" -O2 -D__USE_MINGW_ANSI_STDIO=0 -D__WINE_PE_BUILD -D__WINESRC__ -I source/include -include _mingw.h \
     -c source/dlls/winecrt0/debug.c -o debug.o
   # The standalone runner uses console declarations that each test source
@@ -48,9 +52,6 @@ in runCommand "wine-11.0-upstream-x86-tests" {
   #include "winbase.h"
   #include "wincon.h"
   #include "winternl.h"
-  /* Exported by msvcrt, but absent from MinGW's public stdlib header. */
-  _CRTIMP int __cdecl __getmainargs(int *,char ***,char ***,int,int *);
-  _CRTIMP int __cdecl __wgetmainargs(int *,wchar_t ***,wchar_t ***,int,int *);
   EOF
   failed=()
   for test in ntdll/atom ntdll/change ntdll/directory ntdll/env ntdll/error \
@@ -73,13 +74,15 @@ in runCommand "wine-11.0-upstream-x86-tests" {
       crt_headers=(-I source/include/msvcrt -D_MSVCR_VER=0)
     fi
     resources=()
+    crt_imports=()
+    if [ "$module" = msvcrt ]; then crt_imports+=(legacy-crt.a); fi
     if [ "$module" = kernel32 ]; then resources+=(kernel32-res.o); fi
     if [ "$module" = ntdll ]; then resources+=(ntdll-res.o); fi
     printf 'Compiling upstream test %s\n' "$test"
     if ! "$compiler" -O2 -g -fno-builtin -D__USE_MINGW_ANSI_STDIO=0 -DSTANDALONE -D__WINE_PE_BUILD \
       -D__WINESRC__ -I source/include "''${crt_headers[@]}" \
       -include ./test-preinclude.h \
-      -nostdlib "source/dlls/$module/tests/$name.c" debug.o "''${resources[@]}" \
+      -nostdlib "source/dlls/$module/tests/$name.c" debug.o "''${resources[@]}" "''${crt_imports[@]}" \
       "$($compiler -print-file-name=crt2.o)" "$($compiler -print-file-name=crtbegin.o)" \
       -Wl,--dynamicbase,--nxcompat,--no-insert-timestamp,--start-group \
       -lmingw32 -lgcc -lgcc_eh -lmingwex -lmsvcrt -lkernel32 -luser32 -ladvapi32 -lntdll \
