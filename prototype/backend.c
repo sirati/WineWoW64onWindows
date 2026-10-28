@@ -237,6 +237,7 @@ extern NTSTATUS WINAPI wow64_NtClose(UINT *);
 extern NTSTATUS WINAPI wow64_NtCreateFile(UINT *);
 extern NTSTATUS WINAPI wow64_NtDeleteFile(UINT *);
 extern NTSTATUS WINAPI wow64_NtWaitForSingleObject(UINT *);
+extern NTSTATUS WINAPI wow64_NtYieldExecution(UINT *);
 extern NTSTATUS WINAPI wow64_NtQueryInformationThread(UINT *);
 extern NTSTATUS WINAPI wow64_NtAlertThreadByThreadId(UINT *),wow64_NtWaitForAlertByThreadId(UINT *);
 extern NTSTATUS WINAPI wow64_NtAlertMultipleThreadByThreadId(UINT *);
@@ -334,6 +335,7 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
     if(probe_trace&&n==0x27)diagnostic("SET_FILE handle=%x class=%u len=%u data=%08lx\n",a[0],a[4],a[3],*(DWORD *)(uintptr_t)a[2]);
     switch(n)
     {
+    case 0x0046: status=wow64_NtYieldExecution(a);break;
     case 0x0098: status=wow64_NtGetCurrentProcessorNumber(a);break;
     case 0x006c: status=wow64_NtAreMappedFilesTheSame(a);break;
     case 0x0037: status=wow64_NtOpenSection(a);break;
