@@ -62,7 +62,16 @@ static NTSTATUS thread_context(HANDLE handle,I386_CONTEXT *context,BOOL set)
 {
     extern int probe_trace;
     struct guest_thread *thread=probe_thread_acquire(handle);
-    if(!thread){if(probe_trace)fprintf(stderr,"THREAD_CONTEXT no-record handle=%p set=%d flags=%08lx\n",handle,set,context->ContextFlags);return STATUS_INVALID_HANDLE;}
+    if(!thread)
+    {
+        /* The guest record can be reaped while an exited thread's handle
+         * remains valid. Let Windows validate its lifetime and access rights
+         * without requesting or changing any native register state. */
+        CONTEXT native={.ContextFlags=CONTEXT_AMD64};
+        NTSTATUS status=set?NtSetContextThread(handle,&native):NtGetContextThread(handle,&native);
+        if(probe_trace)fprintf(stderr,"THREAD_CONTEXT no-record handle=%p set=%d flags=%08lx status=%08lx\n",handle,set,context->ContextFlags,status);
+        return status?status:STATUS_THREAD_NOT_IN_PROCESS;
+    }
     struct guest_cpu *cpu=probe_thread_cpu(thread);
     if(!cpu){if(probe_trace)fprintf(stderr,"THREAD_CONTEXT no-cpu handle=%p set=%d\n",handle,set);probe_thread_release(thread);return STATUS_THREAD_NOT_IN_PROCESS;}
     BOOL self=(handle==GetCurrentThread()||GetThreadId(handle)==GetCurrentThreadId());

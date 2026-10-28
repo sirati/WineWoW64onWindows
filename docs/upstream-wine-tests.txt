@@ -457,5 +457,62 @@ separate upstream thread-suite wait, and no extra guest service is added.
 The 2 GiB VM was destroyed after evidence retrieval. Raw evidence:
 /home/sirati/.t3/worktrees/WineWoW64onWindows/t3-ce0cb057/evidence/vm-results/
 Primary audit: evidence/affinity-cd13e0f/primary-low-memory-audit.json.
-Native context-status and PE 3.10/6.0 memory controls are prepared as separate
-test inputs. Their results are still pending; no further fix is adopted here.
+Native context-status and PE 3.10/6.0 memory controls
+
+Luna 6 ran nineteen supplemental processes on the unchanged cd13e0f runtime
+in a fresh 2 GiB, four-CPU VM. The primary checked each actual launch, raw
+stream, exit, timeout and marker, the retrieved archive hash, direct suite
+exit 1 and successful VM destruction. The 130-file manifest verified before
+and after testing, and the host hash remained unchanged.
+
+The x86 native control and five Wine context controls pass immediately after
+thread exit. Both return STATUS_UNSUCCESSFUL for an exited-thread empty get.
+For empty set, native x86 returns STATUS_THREAD_IS_TERMINATING, Win32 error 5;
+Wine returns STATUS_UNSUCCESSFUL, error 31. Both errors satisfy the upstream
+assertion. Native x64 returns STATUS_UNSUCCESSFUL for both exited operations.
+All controls distinguish invalid handles, STATUS_INVALID_HANDLE / error 6,
+from these exited-thread handles. This immediate-exit control does not cover
+asynchronous guest-record removal. The adapter currently returns invalid
+handle when no guest record remains; delayed controls are prepared next.
+
+Both PE 3.10 and PE 6.0 memory fixtures pass natively with three samples.
+Five Wine runs per variant load the intended application, complete all
+samples and exit 72 without a runner timeout or success marker. PE 3.10
+also caps total pagefile to 0x7fffffff while native reports 0x8fc08000.
+PE 6.0 total pagefile agrees, but available pagefile differs in every Wine
+sample for both versions. Gating the Photoshop workaround solely on the PE
+version is therefore unsupported by these native controls. Neither the
+Photoshop workaround nor the separate Sacrifice cap is changed here.
+
+Raw evidence:
+/home/sirati/.t3/worktrees/WineWoW64onWindows/t3-fd7234b3/evidence/vm-results/
+Archive SHA256: 934cb50ba2e0d6d720cae94ed55bd4157fe188357001402ca8e2cb64fc51c833.
+Primary audit: evidence/affinity-cd13e0f/primary-native-diagnostic-audit.json.
+
+Delayed exited-thread context control
+
+A subsequent control holds a duplicate thread handle open and samples context
+operations immediately after normal or forced exit, then after 250 ms and
+two seconds. Native x86 and x64 pass. All five unchanged cd13e0f Wine runs
+load the fixture, exit 78 and lack its success marker, without timeouts.
+Their delayed get/set calls return STATUS_INVALID_HANDLE, Win32 error 6,
+and trace output confirms the guest record has been removed. Native x86
+keeps STATUS_UNSUCCESSFUL for get and STATUS_THREAD_IS_TERMINATING for set;
+native x64 keeps STATUS_UNSUCCESSFUL for both. All native invalid-handle
+controls still return error 6. The direct suite exits 1.
+
+This establishes that guest-record cleanup changes the result for a still
+valid exited-thread handle. The candidate fallback uses an empty native
+context request to preserve Windows handle, access and exit validation when
+no guest record remains. It requests no native register state and rejects
+a successful native request as STATUS_THREAD_NOT_IN_PROCESS. Live registered
+threads retain Wine's existing conversion. Windows validation of this fix is
+pending. The new thread_delayed_context32 fixture also covers both delays,
+both exit modes, duplicate handles and invalid-handle errors.
+
+Negative-control raw evidence:
+/home/sirati/.t3/worktrees/WineWoW64onWindows/t3-fd7234b3/evidence/delayed-context/vm-results/
+Archive SHA256: 2801b31b5eb4217805720a83e1de6d9bb01f14b9f2d6e4fb414cdcfb1e29ba59.
+Primary audit: evidence/affinity-cd13e0f/primary-delayed-context-audit.json.
+The delegate called 0xc0000001 STATUS_INVALID_PARAMETER in its summary;
+the raw numeric status is STATUS_UNSUCCESSFUL. The VM was destroyed.

@@ -21,6 +21,7 @@ foreach($program in $Programs) {
             if($timeout){$p.Kill();$p.WaitForExit()}
             $pattern=switch($program){
                 'stack_growth32' { 'stack_growth32:.*guard pages.*successfully' }
+                'thread_delayed_context32' { '(?m)^thread_delayed_context32: normal and forced exit retain valid context-handle errors after cleanup passed\r?$' }
                 'fs_recovery32' { 'fs_recovery32:.*recovered and retried' }
                 'stack_overflow32' { 'stack_overflow32:.*repeated growth passed' }
                 default { "$program`:.*passed" }
