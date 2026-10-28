@@ -23,6 +23,12 @@ void probe_xstate_init(void)
     probe_xsave_mask=RtlGetEnabledExtendedFeatures(~(UINT64)0)&(((UINT64)hi<<32)|lo);
     shared.XState=((const KUSER_SHARED_DATA *)0x7ffe0000)->XState;
     shared.XState.EnabledFeatures=probe_xsave_mask;
+    /* Wine's x86 KUSER_SHARED_DATA exposes guest-enabled features through
+     * both fields. Host-only supervisor state (for example CET metadata)
+     * must not leak into the 32-bit contract or RtlGetEnabledExtendedFeatures
+     * will disagree with the guest XSTATE configuration. */
+    shared.XState.EnabledSupervisorFeatures=0;
+    shared.XState.EnabledVolatileFeatures=probe_xsave_mask;
     unsigned int size=sizeof(XSAVE_FORMAT)+sizeof(XSAVE_AREA_HEADER);
     for(unsigned i=2;i<63;i++)if(probe_xsave_mask&((UINT64)1<<i))
     {
