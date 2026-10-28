@@ -153,6 +153,30 @@ NTSTATUS WINAPI probe_NtQueueApcThread(HANDLE handle,PNTAPCFUNC function,ULONG_P
     probe_thread_release(thread);
     return status==STATUS_THREAD_IS_TERMINATING?STATUS_UNSUCCESSFUL:status;
 }
+NTSTATUS WINAPI probe_NtQueueApcThreadEx2(HANDLE handle,HANDLE reserve,ULONG flags,
+                                         PNTAPCFUNC function,ULONG_PTR a,ULONG_PTR b,ULONG_PTR c)
+{
+    /* Reserve objects and callback-data contexts need their own native
+     * lifetime adapters. Ordinary APCs share the existing startup FIFO. */
+    if(reserve)return STATUS_NOT_IMPLEMENTED;
+    if(function&&(flags&QUEUE_USER_APC_FLAGS_SPECIAL_USER_APC))
+    {
+        union { OBJECT_TYPE_INFORMATION type;BYTE bytes[512]; } object;
+        OBJECT_BASIC_INFORMATION basic;
+        NTSTATUS status=NtQueryObject(handle,ObjectTypeInformation,&object,sizeof(object),NULL);
+        if(status)return status;
+        if(object.type.TypeName.Length!=6*sizeof(WCHAR)||
+           memcmp(object.type.TypeName.Buffer,L"Thread",6*sizeof(WCHAR)))return STATUS_OBJECT_TYPE_MISMATCH;
+        status=NtQueryObject(handle,ObjectBasicInformation,&basic,sizeof(basic),NULL);
+        if(status)return status;
+        if(!(basic.GrantedAccess&THREAD_SET_CONTEXT))return STATUS_ACCESS_DENIED;
+        /* server/thread.c's queue_apc handler rejects special APCs for
+         * WoW64 targets. Every guest target in this port is x86. */
+        return STATUS_NOT_SUPPORTED;
+    }
+    if(function&&(flags&QUEUE_USER_APC_CALLBACK_DATA_CONTEXT))return STATUS_NOT_IMPLEMENTED;
+    return probe_NtQueueApcThread(handle,function,a,b,c);
+}
 void probe_thread_enter(struct guest_cpu *cpu,struct guest_cpu **previous)
 {
     struct guest_thread *thread=TlsGetValue(thread_slot);
@@ -273,3 +297,4 @@ NTSTATUS (WINAPI *__imp_probe_NtQueryInformationThread)(HANDLE,THREADINFOCLASS,v
 NTSTATUS (WINAPI *__imp_probe_NtSetInformationThread)(HANDLE,THREADINFOCLASS,void *,ULONG)=probe_NtSetInformationThread;
 NTSTATUS (WINAPI *__imp_probe_NtGetNextThread)(HANDLE,HANDLE,ACCESS_MASK,ULONG,ULONG,HANDLE *)=probe_NtGetNextThread;
 NTSTATUS (WINAPI *__imp_probe_NtQueueApcThread)(HANDLE,PNTAPCFUNC,ULONG_PTR,ULONG_PTR,ULONG_PTR)=probe_NtQueueApcThread;
+NTSTATUS (WINAPI *__imp_probe_NtQueueApcThreadEx2)(HANDLE,HANDLE,ULONG,PNTAPCFUNC,ULONG_PTR,ULONG_PTR,ULONG_PTR)=probe_NtQueueApcThreadEx2;

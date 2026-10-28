@@ -173,7 +173,7 @@ for unit in file process registry security sync syscall system virtual; do
     extra+=( -DRtlWow64GetThreadSelectorEntry=probe_RtlWow64GetThreadSelectorEntry )
     extra+=( -DNtQueryInformationProcess=probe_NtQueryInformationProcess )
     extra+=( -DNtCreateUserProcess=probe_NtCreateUserProcess )
-    extra+=( -DNtSetInformationProcess=probe_NtSetInformationProcess -DNtQueueApcThread=probe_NtQueueApcThread -DNtCreateThreadEx=probe_NtCreateThreadEx -DNtTerminateThread=probe_NtTerminateThread -DNtQueryInformationThread=probe_NtQueryInformationThread -DNtSetInformationThread=probe_NtSetInformationThread -DNtGetNextThread=probe_NtGetNextThread )
+    extra+=( -DNtSetInformationProcess=probe_NtSetInformationProcess -DNtQueueApcThread=probe_NtQueueApcThread -DNtQueueApcThreadEx2=probe_NtQueueApcThreadEx2 -DNtCreateThreadEx=probe_NtCreateThreadEx -DNtTerminateThread=probe_NtTerminateThread -DNtQueryInformationThread=probe_NtQueryInformationThread -DNtSetInformationThread=probe_NtSetInformationThread -DNtGetNextThread=probe_NtGetNextThread )
   fi
   if [[ "$unit" == system ]]; then extra+=( -DNtQuerySystemInformation=probe_NtQuerySystemInformation );fi
   if [[ "$unit" == sync ]]; then extra+=( -DNtWaitForSingleObject=probe_NtWaitForSingleObject -DNtWaitForMultipleObjects=probe_NtWaitForMultipleObjects -DNtDuplicateObject=probe_NtDuplicateObject );fi

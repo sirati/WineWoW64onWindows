@@ -36,6 +36,14 @@ void WINAPI app_entry(void)
     require(QueueUserAPC(count_apc,thread,5),228);
     require(WaitForSingleObject(thread,3000)==WAIT_OBJECT_0&&calls==89,229);
     require(CloseHandle(thread)&&CloseHandle(ready)&&CloseHandle(done),230);
-    MESSAGE("apc32: Wine APC dispatcher, issuing thread, nonalertable/alertable waits, nested APCs and guest worker delivery passed\r\n");
+    owner=GetCurrentThreadId();
+    typedef DWORD (WINAPI *queue2_t)(PAPCFUNC,HANDLE,ULONG_PTR,DWORD);
+    queue2_t queue2=(queue2_t)GetProcAddress(GetModuleHandleA("kernel32.dll"),"QueueUserAPC2");
+    require(queue2!=NULL,231);
+    require(queue2(count_apc,GetCurrentThread(),2,0)&&calls==89,232);
+    require(SleepEx(0,TRUE)==WAIT_IO_COMPLETION&&calls==91,233);
+    SetLastError(0xdeadbeef);
+    require(!queue2(count_apc,GetCurrentThread(),2,1)&&GetLastError()==ERROR_NOT_SUPPORTED&&calls==91,234);
+    MESSAGE("apc32: Wine APC dispatcher, issuing thread, nonalertable/alertable waits, nested APCs, guest worker delivery and QueueUserAPC2 passed\r\n");
     ExitProcess(0);
 }
