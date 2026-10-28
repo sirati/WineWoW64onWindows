@@ -17,7 +17,7 @@ flags=(-O2 -g -std=gnu17 -D__WINESRC__ -D__WINE_PE_BUILD -DPROBE_NATIVE_WINDOWS 
 mitigation_flags=(-Wl,--dynamicbase,--high-entropy-va,--nxcompat)
 mkdir -p prototype/out/guest
 mkdir -p prototype/out/stock-wine
-cp prototype/stock-wine/i386-windows/*.dll prototype/out/stock-wine/
+cp -R prototype/stock-wine/i386-windows/. prototype/out/stock-wine/
 if [[ ${PROBE_LOADER_SOURCE_PATCHED:-0} != 1 ]]; then
   python3 prototype/patch-wine-loader.py prototype/out/stock-wine/ntdll.dll
 fi
@@ -80,9 +80,9 @@ python3 prototype/check-transition-image.py prototype/out/guest/transition32.dll
 guest_flags=(-O2 -D_WIN32_WINNT=0x0601 -ffreestanding -fno-stack-protector -nostdlib)
 "$cc32" "${guest_flags[@]}" prototype/hello32.c -lkernel32 prototype/out/libguest_kernel32.a \
   -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/hello32.exe
-for test in stress32 teb32 tls32 tls_slots32 threads32 files32 dynamic32 file_semantics32 heap32 memory_status32 return32 concurrent32 fs_recovery32 async_event32 pipe_control32 apc32 io_notify32 io_thread_exit32 thread_context32 thread_exit_context32 thread_delayed_context32 thread_create32 thread_priority32 selector_identity32 activation_context32 worker_process_exit32 threadpool_wait32 condition_wake32 thread_affinity32 thunk_fault32 xstate32 xstate_components32 fiber32 fiber_thread_exit32 wine_debug32 tick_count32 stack_growth32 mitigation32 process_parameters32; do
+for test in stress32 teb32 tls32 tls_slots32 threads32 files32 dynamic32 file_semantics32 heap32 memory_status32 return32 concurrent32 fs_recovery32 async_event32 pipe_control32 apc32 io_notify32 io_thread_exit32 thread_context32 thread_exit_context32 thread_delayed_context32 thread_create32 thread_priority32 selector_identity32 activation_context32 worker_process_exit32 threadpool_wait32 condition_wake32 thread_affinity32 thunk_fault32 xstate32 xstate_components32 fiber32 fiber_thread_exit32 wine_debug32 tick_count32 stack_growth32 mitigation32 process_parameters32 named_objects32; do
   test_flags=();if [[ "$test" == xstate32 ]];then test_flags+=( -msse2 );fi
-  if [[ "$test" == process_parameters32 ]];then test_flags+=( "${flags[@]}" "${inc[@]}" );fi
+  if [[ "$test" == process_parameters32 || "$test" == named_objects32 ]];then test_flags+=( "${flags[@]}" "${inc[@]}" );fi
   "$cc32" "${guest_flags[@]}" "${test_flags[@]}" prototype/$test.c -lkernel32 prototype/out/libguest_kernel32.a \
     -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/$test.exe
 done
@@ -161,6 +161,7 @@ for unit in file process registry security sync syscall system virtual; do
       -DpBTCpuNotifyReadFile=wine_wow64_pBTCpuNotifyReadFile \
       -DpBTCpuNotifyUnmapViewOfSection=wine_wow64_pBTCpuNotifyUnmapViewOfSection)
   fi
+  if [[ "$unit" == sync ]];then extra+=( -DNtOpenDirectoryObject=probe_NtOpenDirectoryObject );fi
   if [[ "$unit" == process ]]; then
     extra+=( -DNtAlertMultipleThreadByThreadId=probe_NtAlertMultipleThreadByThreadId )
     extra+=( -DRtlWow64GetThreadSelectorEntry=probe_RtlWow64GetThreadSelectorEntry )

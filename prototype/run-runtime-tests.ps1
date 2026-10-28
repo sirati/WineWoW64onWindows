@@ -21,6 +21,7 @@ foreach($program in $Programs) {
             $timeout=-not $p.WaitForExit(15000)
             if($timeout){$p.Kill();$p.WaitForExit()}
             $pattern=switch($program){
+                'named_objects32' { '(?m)^named_objects32: session, Local mappings, events, semaphores and mutexes passed\r?$' }
                 'stack_growth32' { 'stack_growth32:.*guard pages.*successfully' }
                 'selector_identity32' { '(?m)^selector_identity32: current, duplicated and remote FS descriptors identify guest TEBs passed\r?$' }
                 'activation_context32' { '(?m)^activation_context32: verified manifest files, mapping and simple/dependent activation contexts passed\r?$' }

@@ -575,6 +575,7 @@ static void init_guest_teb(BYTE *image)
     /* Native and Wine heaps have different layouts. Initialize Wine's heap
      * below once its PE code and syscall gates are executable. */
     *(DWORD *)(guest_peb+0x64)=GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+    ((PEB32 *)guest_peb)->SessionId=NtCurrentTeb()->Peb->SessionId;
     RTL_OSVERSIONINFOEXW version={.dwOSVersionInfoSize=sizeof(version)};
     RtlGetVersion(&version);
     *(DWORD *)(guest_peb+0xa4)=version.dwMajorVersion;

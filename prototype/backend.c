@@ -160,6 +160,25 @@ NTSTATUS WINAPI probe_NtOpenFile(HANDLE *file,ACCESS_MASK access,OBJECT_ATTRIBUT
     return NtOpenFile(file,access,&copy,io,share,options);
 }
 NTSTATUS (WINAPI *__imp_probe_NtOpenFile)(HANDLE *,ACCESS_MASK,OBJECT_ATTRIBUTES *,IO_STATUS_BLOCK *,ULONG,ULONG)=probe_NtOpenFile;
+NTSTATUS WINAPI probe_NtOpenDirectoryObject(HANDLE *directory,ACCESS_MASK access,OBJECT_ATTRIBUTES *attributes)
+{
+    NTSTATUS status=NtOpenDirectoryObject(directory,access,attributes);
+    /* Wine's server puts session zero's named objects under Sessions too.
+     * Windows uses the global BaseNamedObjects directory for session zero.
+     * Preserve Wine's caller and relative Local/Global name resolution. */
+    static const WCHAR wine_zero[]=L"\\Sessions\\0\\BaseNamedObjects";
+    if((status==STATUS_OBJECT_NAME_NOT_FOUND||status==STATUS_OBJECT_PATH_NOT_FOUND)&&
+       attributes&&!attributes->RootDirectory&&attributes->ObjectName&&
+       attributes->ObjectName->Length==sizeof(wine_zero)-sizeof(WCHAR)&&
+       !wcsnicmp(attributes->ObjectName->Buffer,wine_zero,ARRAY_SIZE(wine_zero)-1))
+    {
+        UNICODE_STRING name=RTL_CONSTANT_STRING(L"\\BaseNamedObjects");
+        OBJECT_ATTRIBUTES copy=*attributes;copy.ObjectName=&name;
+        status=NtOpenDirectoryObject(directory,access,&copy);
+    }
+    return status;
+}
+NTSTATUS (WINAPI *__imp_probe_NtOpenDirectoryObject)(HANDLE *,ACCESS_MASK,OBJECT_ATTRIBUTES *)=probe_NtOpenDirectoryObject;
 NTSTATUS WINAPI probe_NtSetInformationFile(HANDLE file,IO_STATUS_BLOCK *io,void *info,ULONG size,FILE_INFORMATION_CLASS type)
 {
     NTSTATUS adapted;
@@ -264,10 +283,10 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
             else diagnostic("HARD_ERROR parameter[%u]=%08lx\n",i,value);
         }
     }
-    if(probe_trace&&n==0x33)
+    if(probe_trace&&(n==0x33||n==0x58||n==0x4a))
     {
-        OBJECT_ATTRIBUTES32 *oa=(void *)(uintptr_t)a[2];UNICODE_STRING32 *name=(void *)(uintptr_t)oa->ObjectName;
-        diagnostic("OPEN_FILE access=%08x root=%08lx path=%.*ls\n",a[1],oa->RootDirectory,name->Length/2,(WCHAR *)(uintptr_t)name->Buffer);
+        OBJECT_ATTRIBUTES32 *oa=(void *)(uintptr_t)a[2];UNICODE_STRING32 *name=oa?(void *)(uintptr_t)oa->ObjectName:NULL;
+        if(name)diagnostic("OBJECT_NAME service=%x access=%08x root=%08lx path=%.*ls\n",n,a[1],oa->RootDirectory,name->Length/2,(WCHAR *)(uintptr_t)name->Buffer);
     }
     if(probe_trace&&n==0x27)diagnostic("SET_FILE handle=%x class=%u len=%u data=%08lx\n",a[0],a[4],a[3],*(DWORD *)(uintptr_t)a[2]);
     switch(n)
