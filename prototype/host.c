@@ -32,6 +32,7 @@ extern void probe_resume_guest_context(CONTEXT *);
 extern void probe_exception_init(void *,void *,WORD);
 extern void probe_apc_init(void *);
 extern BOOL probe_dispatch_guest_exception(EXCEPTION_POINTERS *);
+extern BOOL probe_handle_syscall_trap(EXCEPTION_POINTERS *);
 extern void probe_exception_thread_cleanup(void);
 extern LONG CALLBACK probe_vectored_entry(EXCEPTION_POINTERS *);
 extern unsigned long probe_fs_repairs;
@@ -544,6 +545,7 @@ static struct far_thunk *map_transition_gates(WORD cs)
 }
 LONG CALLBACK probe_on_exception(EXCEPTION_POINTERS *p)
 {
+    if(probe_handle_syscall_trap(p))return EXCEPTION_CONTINUE_EXECUTION;
     if(guest_stack_fault(p))
     { probe_resume_guest_context(p->ContextRecord);return EXCEPTION_CONTINUE_EXECUTION; }
     if(probe_recover_fs(p)) return EXCEPTION_CONTINUE_EXECUTION;
