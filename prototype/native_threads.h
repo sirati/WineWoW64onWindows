@@ -8,6 +8,7 @@ void probe_thread_remove(struct guest_thread *);
 void probe_thread_exception_state(void *);
 void *probe_thread_take_exception_state(struct guest_thread *);
 void probe_thread_ready(void);
+void probe_thread_set_start(HANDLE,void *);
 struct guest_thread *probe_thread_acquire(HANDLE);
 void probe_thread_release(struct guest_thread *);
 struct guest_cpu *probe_thread_cpu(struct guest_thread *);

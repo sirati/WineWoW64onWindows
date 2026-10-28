@@ -917,6 +917,7 @@ NTSTATUS WINAPI probe_NtCreateThreadEx(HANDLE *output,ACCESS_MASK access,OBJECT_
     ((TEB32 *)job->teb)->RealClientId=((TEB32 *)job->teb)->ClientId;
     job->record=probe_thread_register(job->native,(void *)job->teb,&job->cpu,free_guest_thread_storage,job);
     if(!job->record)status=STATUS_NO_MEMORY;
+    else probe_thread_set_start(job->native,start);
     if(!status)status=NtDuplicateObject(GetCurrentProcess(),job->native,GetCurrentProcess(),output,access,
                                        attributes?attributes->Attributes&OBJ_INHERIT:0,0);
     if(status)
@@ -1180,6 +1181,7 @@ int main(int argc,char **argv)
     cpu.ctx.Eip=(DWORD)(uintptr_t)(app->base+app->nt->OptionalHeader.AddressOfEntryPoint);
     cpu.ctx.Esp=(DWORD)(uintptr_t)sp;cpu.ctx.SegCs=0x23;cpu.ctx.SegSs=ss;cpu.ctx.SegFs=guest_fs_sel;cpu.ctx.EFlags=0x202;
     main_guest_context=&cpu.ctx;
+    probe_thread_set_start(GetCurrentThread(),app->base+app->nt->OptionalHeader.AddressOfEntryPoint);
     if(child_process)
     {
         probe_init_child_context(&cpu.ctx,app->base+app->nt->OptionalHeader.AddressOfEntryPoint,

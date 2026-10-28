@@ -15,6 +15,8 @@ struct guest_thread {
     TEB32 *teb;
     struct guest_cpu *volatile cpu;
     void *volatile exception_state;
+    void *volatile start_address;
+    LONG has_start_address;
     LONG ready;
     SRWLOCK apc_lock;
     LIST_ENTRY pending_apcs;
@@ -79,6 +81,16 @@ struct guest_thread *probe_thread_acquire(HANDLE handle)
 struct guest_cpu *probe_thread_cpu(struct guest_thread *thread)
 { return InterlockedCompareExchangePointer((void *volatile *)&thread->cpu,NULL,NULL); }
 TEB32 *probe_thread_teb(struct guest_thread *thread) { return thread->teb; }
+void probe_thread_set_start(HANDLE handle,void *address)
+{
+    struct guest_thread *thread=probe_thread_acquire(handle);
+    if(!thread)return;
+    /* Wine's server keeps the guest entry point in its thread record.
+     * The Windows thread starts in our native wrapper instead. */
+    InterlockedExchangePointer(&thread->start_address,address);
+    InterlockedExchange(&thread->has_start_address,1);
+    probe_thread_release(thread);
+}
 struct guest_thread *probe_thread_register(HANDLE handle,TEB32 *teb,struct guest_cpu *cpu,
                                          void (*cleanup)(void *),void *cleanup_arg)
 {
@@ -185,6 +197,7 @@ void probe_thread_enter(struct guest_cpu *cpu,struct guest_cpu **previous)
         thread=probe_thread_register(GetCurrentThread(),(void *)cpu->guest_fs_base,NULL,NULL,NULL);
         if(!thread)ExitProcess(94);
         probe_thread_bind(thread);probe_thread_release(thread);
+        probe_thread_set_start(GetCurrentThread(),(void *)(ULONG_PTR)cpu->ctx.Eip);
     }
     *previous=InterlockedExchangePointer((void *volatile *)&thread->cpu,cpu);
 }
@@ -279,6 +292,8 @@ NTSTATUS WINAPI probe_NtQueryInformationThread(HANDLE handle,THREADINFOCLASS typ
                 /* Wine's original 32-bit thunk adds its fixed TEB offset. */
                 ((THREAD_BASIC_INFORMATION *)info)->TebBaseAddress=(TEB *)((BYTE *)thread->teb-0x2000);
             }
+            else if(InterlockedCompareExchange(&thread->has_start_address,0,0))
+                *(void **)info=InterlockedCompareExchangePointer(&thread->start_address,NULL,NULL);
             probe_thread_release(thread);
         }
         else if(type==ThreadBasicInformation)
@@ -292,6 +307,12 @@ NTSTATUS WINAPI probe_NtQueryInformationThread(HANDLE handle,THREADINFOCLASS typ
 }
 NTSTATUS WINAPI probe_NtSetInformationThread(HANDLE handle,THREADINFOCLASS type,void *info,ULONG size)
 {
+    if(type==ThreadQuerySetWin32StartAddress)
+    {
+        NTSTATUS status=NtSetInformationThread(handle,type,info,size);
+        if(!status)probe_thread_set_start(handle,*(void **)info);
+        return status;
+    }
     if(type==ThreadBasePriority&&size==sizeof(LONG)&&info)
     {
         LONG priority=*(LONG *)info;
