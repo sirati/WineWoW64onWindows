@@ -9,6 +9,7 @@
 #include "wine/debug.h"
 #include "shared.h"
 #include "native_io.h"
+#include "native_loader.h"
 #include "../wine-11.0-source/dlls/ntdll/unixlib.h"
 /* A guest thread can be terminated while entering a native wait. Diagnostic
  * output must not leave the native CRT's shared FILE lock owned by that
@@ -59,9 +60,9 @@ NTSTATUS WINAPI probe_NtGetNlsSectionPtr(ULONG type,ULONG id,void *unknown,void 
     status=wine_path?STATUS_NOT_IMPLEMENTED:NtGetNlsSectionPtr(type,id,unknown,&ptr,&size);
     if(status<0&&wine_path)
     {
-        char path[MAX_PATH];
-        strcpy(path,wine_path);
-        FILE *f=fopen(path,"rb");
+        WCHAR relative[MAX_PATH],path[32768];
+        MultiByteToWideChar(CP_UTF8,0,wine_path,-1,relative,ARRAY_SIZE(relative));
+        FILE *f=probe_runtime_path(path,ARRAY_SIZE(path),relative)?_wfopen(path,L"rb"):NULL;
         if(f) { fseek(f,0,SEEK_END);size=ftell(f);rewind(f);ptr=malloc(size);
                 allocated=ptr!=NULL;if(ptr&&fread(ptr,1,size,f)==size) status=STATUS_SUCCESS;fclose(f); }
     }
@@ -92,7 +93,8 @@ NTSTATUS WINAPI probe_NtInitializeNlsFiles(void **out,LCID *lcid,LARGE_INTEGER *
     NTSTATUS status=STATUS_SUCCESS;AcquireSRWLockExclusive(&lock);
     if(!data)
     {
-        FILE *f=fopen("stock-wine/locale.nls","rb");
+        WCHAR path[32768];
+        FILE *f=probe_runtime_path(path,ARRAY_SIZE(path),L"stock-wine/locale.nls")?_wfopen(path,L"rb"):NULL;
         if(!f) status=STATUS_NO_SUCH_FILE;
         else
         {
@@ -147,7 +149,7 @@ NTSTATUS WINAPI probe_NtOpenFile(HANDLE *file,ACCESS_MASK access,OBJECT_ATTRIBUT
         size_t prefix=wcslen(prefixes[i]),length=name.Length/sizeof(WCHAR);
         if(length>prefix+4&&!wcsnicmp(name.Buffer,prefixes[i],prefix)&&!wcsnicmp(name.Buffer+length-4,L".dll",4))
         {
-            if(length-prefix>900||!GetFullPathNameW(L"stock-wine",1024,stock,NULL))return STATUS_NAME_TOO_LONG;
+            if(length-prefix>900||!probe_runtime_path(stock,ARRAY_SIZE(stock),L"stock-wine"))return STATUS_NAME_TOO_LONG;
             swprintf(mapped,2048,L"\\??\\%s\\%s",stock,name.Buffer+prefix);
             name.Buffer=mapped;name.Length=wcslen(mapped)*sizeof(WCHAR);name.MaximumLength=name.Length+sizeof(WCHAR);
             break;
@@ -248,6 +250,20 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
     NTSTATUS status;
     UINT n=((struct temp_frame *)TlsGetValue(temp_slot))->service;
     if(probe_trace) diagnostic("NT_CALL %x\n",n);
+    if(n==0x00d0)
+    {
+        diagnostic("HARD_ERROR status=%08x parameters=%u unicode_mask=%x option=%u\n",a[0],a[1],a[2],a[4]);
+        if(a[1]<=4&&a[3])for(UINT i=0;i<a[1];i++)
+        {
+            ULONG value=((ULONG *)(ULONG_PTR)a[3])[i];
+            if(a[2]&(1u<<i))
+            {
+                const UNICODE_STRING32 *str=(void *)(ULONG_PTR)value;
+                diagnostic("HARD_ERROR parameter[%u]=%.*ls\n",i,str->Length/2,(WCHAR *)(ULONG_PTR)str->Buffer);
+            }
+            else diagnostic("HARD_ERROR parameter[%u]=%08lx\n",i,value);
+        }
+    }
     if(probe_trace&&n==0x33)
     {
         OBJECT_ATTRIBUTES32 *oa=(void *)(uintptr_t)a[2];UNICODE_STRING32 *name=(void *)(uintptr_t)oa->ObjectName;

@@ -52,6 +52,7 @@ crtend=$($cc64 -print-file-name=crtend.o)
 "$cc64" -O2 -g -nostdlib prototype/debug-guest.c "$crt2" "$crtbegin" -ldbghelp "${winlibs[@]}" "$crtend" -o prototype/out/debug-guest.exe
 "$cc64" -O2 -g -nostdlib prototype/async_peer64.c "$crt2" "$crtbegin" "${winlibs[@]}" "$crtend" -o prototype/out/async-peer64.exe
 "$cc64" -O2 -g -nostdlib prototype/policy_launch64.c "$crt2" "$crtbegin" "${winlibs[@]}" "$crtend" -o prototype/out/policy-launch64.exe
+"$cc64" -O2 -g -nostdlib prototype/unixlib_window_native.c "$crt2" "$crtbegin" "${winlibs[@]}" "$crtend" -o prototype/out/unixlib-window-native.exe
 
 "$cc64" --version > prototype/out/compiler-version-linux.txt
 "$cc64" "${flags[@]}" -shared -nostdlib prototype/native64.c -o prototype/out/native64.dll \
@@ -173,7 +174,7 @@ for unit in file process registry security sync syscall system virtual; do
   "$cc64" "${flags[@]}" "${extra[@]}" "${inc[@]}" -Iwine-11.0-source/dlls/wow64 \
     -c "$unit_source" -o prototype/out/wine-$unit.o
 done
-"$cc64" "${flags[@]}" "${inc[@]}" prototype/host.c prototype/backend.c prototype/wine_cpu_adapter.c prototype/wine_exceptions.c prototype/wine_extended_context.c prototype/xstate.c prototype/native_io.c prototype/native_sockets.c prototype/native_socket_io.c prototype/native_threads.c prototype/native_loader.c \
+"$cc64" "${flags[@]}" "${inc[@]}" prototype/host.c prototype/backend.c prototype/wine_cpu_adapter.c prototype/wine_exceptions.c prototype/wine_extended_context.c prototype/xstate.c prototype/native_io.c prototype/native_sockets.c prototype/native_socket_io.c prototype/native_threads.c prototype/native_loader.c prototype/native_debug.c \
   prototype/out/wine-file.o prototype/out/wine-process.o prototype/out/wine-sync.o prototype/out/wine-virtual.o \
   prototype/out/wine-registry.o \
   prototype/out/wine-system.o prototype/out/wine-security.o \

@@ -16,6 +16,7 @@ static const char *dll_dir,*build_dir,*alt_build_dir;
 static const USHORT current_machine=IMAGE_FILE_MACHINE_AMD64;
 static const char **dll_paths;
 static char *dll_path_environment;
+static WCHAR runtime_directory[32768];
 static size_t dll_path_maxlen;
 typedef int sigset_t;
 #define server_enter_uninterrupted_section(lock,mask) EnterCriticalSection(lock)
@@ -76,9 +77,9 @@ static char *environment_path(const WCHAR *name)
 }
 void probe_loader_init(void)
 {
-    WCHAR path[32768];
-    DWORD count=GetModuleFileNameW(NULL,path,ARRAY_SIZE(path));
-    if(!count||count>=ARRAY_SIZE(path))ExitProcess(94);
+    WCHAR *path=runtime_directory;
+    DWORD count=GetModuleFileNameW(NULL,path,ARRAY_SIZE(runtime_directory));
+    if(!count||count>=ARRAY_SIZE(runtime_directory))ExitProcess(94);
     WCHAR *tail=wcsrchr(path,L'\\');if(!tail)ExitProcess(94);*tail=0;
     /* Like Wine's so_dir, x86_64-native is relative to the installed host.
      * Existing packaged PEs also remain on the stock-wine search path. */
@@ -88,6 +89,12 @@ void probe_loader_init(void)
     if(!dll_dir)ExitProcess(94);
     InitializeCriticalSection(&virtual_mutex);
     set_dll_path();
+}
+BOOL probe_runtime_path(WCHAR *path,SIZE_T capacity,const WCHAR *relative)
+{
+    if(wcslen(runtime_directory)+wcslen(relative)+2>capacity)return FALSE;
+    wcscpy(path,runtime_directory);wcscat(path,L"\\");wcscat(path,relative);
+    return TRUE;
 }
 BOOL probe_loader_append_paths(WCHAR *path,SIZE_T capacity)
 {

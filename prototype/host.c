@@ -347,11 +347,11 @@ static void WINAPI notify_stack_protection(void *address,SIZE_T size,ULONG prote
     }
     ReleaseSRWLockExclusive(&stack_lock);
 }
-static struct guest_module *load_image(const char *path,const char *name)
+static struct guest_module *load_image(const WCHAR *path,const char *name)
 {
-    HANDLE file=CreateFileA(path,GENERIC_READ|GENERIC_EXECUTE,
+    HANDLE file=CreateFileW(path,GENERIC_READ|GENERIC_EXECUTE,
                             FILE_SHARE_READ|FILE_SHARE_DELETE,NULL,OPEN_EXISTING,0,NULL),section=NULL;
-    if(file==INVALID_HANDLE_VALUE)fail(path);
+    if(file==INVALID_HANDLE_VALUE) {fwprintf(stderr,L"BOOTSTRAP_OPEN path=%ls\n",path);fail("open bootstrap image");}
     NTSTATUS status=NtCreateSection(&section,SECTION_MAP_READ|SECTION_MAP_WRITE|SECTION_MAP_EXECUTE,
                                     NULL,NULL,PAGE_EXECUTE_READ,SEC_IMAGE,file);
     CloseHandle(file);
@@ -387,12 +387,16 @@ static struct guest_module *load_image(const char *path,const char *name)
     m=&mods[nmods];size_t name_len=strlen(name);if(name_len>=sizeof(mod_names[nmods]))name_len=sizeof(mod_names[nmods])-1;
     memcpy(mod_names[nmods],name,name_len);mod_names[nmods][name_len]=0;
     m->name=mod_names[nmods++];m->base=base;
-    WCHAR relative[1024];
-    MultiByteToWideChar(CP_ACP,0,path,-1,relative,1024);
-    if(!GetFullPathNameW(relative,1024,m->path,NULL))fail("module absolute path");
+    if(!GetFullPathNameW(path,ARRAY_SIZE(m->path),m->path,NULL))fail("module absolute path");
     m->nt=(void *)(base+((IMAGE_DOS_HEADER *)base)->e_lfanew);
     printf("MAP %s PE32 at %p, %lu bytes\n",name,base,m->nt->OptionalHeader.SizeOfImage);
     return m;
+}
+static struct guest_module *load_runtime_image(const WCHAR *relative,const char *name)
+{
+    WCHAR path[32768];
+    if(!probe_runtime_path(path,ARRAY_SIZE(path),relative))fail("bootstrap runtime path");
+    return load_image(path,name);
 }
 static void *guest_export(struct guest_module *m,const char *name,WORD ordinal)
 {
@@ -490,7 +494,9 @@ struct gate_far_pointer { DWORD address; WORD selector; };
 #pragma pack(pop)
 static struct far_thunk *map_transition_gates(WORD cs)
 {
-    HANDLE file=CreateFileA("guest/transition32.dll",GENERIC_READ|GENERIC_EXECUTE,
+    WCHAR path[32768];
+    if(!probe_runtime_path(path,ARRAY_SIZE(path),L"guest/transition32.dll"))fail("transition image path");
+    HANDLE file=CreateFileW(path,GENERIC_READ|GENERIC_EXECUTE,
                             FILE_SHARE_READ|FILE_SHARE_DELETE,NULL,OPEN_EXISTING,0,NULL),section=NULL;
     if(file==INVALID_HANDLE_VALUE)fail("open transition image");
     NTSTATUS status=NtCreateSection(&section,SECTION_MAP_READ|SECTION_MAP_WRITE|SECTION_MAP_EXECUTE,
@@ -652,7 +658,7 @@ static void init_guest_process_params(struct guest_module *app,int argc,char **a
         *dst++=L'"';*dst=0;
     }
     copy_string32(&p->CommandLine,cmd,&next);
-    if(!GetFullPathNameW(L"stock-wine",1024,stock,NULL))fail("Wine DLL directory");
+    if(!probe_runtime_path(stock,ARRAY_SIZE(stock),L"stock-wine"))fail("Wine DLL directory");
     wcscpy(dllpath,app->path);WCHAR *end_path=wcsrchr(dllpath,L'\\');if(end_path)*end_path=0;
     wcscat(dllpath,L";");wcscat(dllpath,stock);wcscat(dllpath,L";");wcscat(dllpath,cwd);
     if(!probe_loader_append_paths(dllpath,ARRAY_SIZE(dllpath)))fail("Wine builtin search path");
@@ -1075,7 +1081,7 @@ int main(int argc,char **argv)
     ((void **)table)[BRIDGE_GET_THREAD_EXIT_CODE]=(void *)bridge_get_thread_exit_code;
     ((void **)table)[BRIDGE_THREAD_EXIT]=(void *)bridge_thread_exit;
     printf("NATIVE64 module=%p table=%p\n",native,table);
-    struct guest_module *nt=load_image(wine_components?"stock-wine/ntdll.dll":"guest/ntdll.dll","ntdll.dll");
+    struct guest_module *nt=load_runtime_image(wine_components?L"stock-wine/ntdll.dll":L"guest/ntdll.dll","ntdll.dll");
     if(wine_components)
     {
         RTL_OSVERSIONINFOEXW *version=low_alloc(0x36000000,4096,PAGE_READWRITE);
@@ -1086,11 +1092,11 @@ int main(int argc,char **argv)
          * rather than replacing RtlGetVersion executable bytes. */
         *(DWORD *)(nt->base+WINE_NTDLL_current_version)=(DWORD)(ULONG_PTR)version;
     }
-    struct guest_module *kb=wine_components?load_image("stock-wine/kernelbase.dll","kernelbase.dll"):0;
-    struct guest_module *k32=load_image(wine_components?"stock-wine/kernel32.dll":"guest/kernel32.dll","kernel32.dll");
-    struct guest_module *crt=wine_components?load_image("stock-wine/msvcrt.dll","msvcrt.dll"):0;
-    struct guest_module *bridge=wine_components?load_image("guest/kernel32.dll","bridge_kernel32.dll"):0;
-    struct guest_module *bootstrap=wine_components?load_image("guest/bootstrap32.dll","bootstrap32.dll"):0;
+    struct guest_module *kb=wine_components?load_runtime_image(L"stock-wine/kernelbase.dll","kernelbase.dll"):0;
+    struct guest_module *k32=load_runtime_image(wine_components?L"stock-wine/kernel32.dll":L"guest/kernel32.dll","kernel32.dll");
+    struct guest_module *crt=wine_components?load_runtime_image(L"stock-wine/msvcrt.dll","msvcrt.dll"):0;
+    struct guest_module *bridge=wine_components?load_runtime_image(L"guest/kernel32.dll","bridge_kernel32.dll"):0;
+    struct guest_module *bootstrap=wine_components?load_runtime_image(L"guest/bootstrap32.dll","bootstrap32.dll"):0;
     const char *app_name=app_arg;for(const char *p=app_arg;*p;p++)if(*p=='/'||*p=='\\')app_name=p+1;
     struct guest_module app_data={.name=app_name},*app=&app_data;
     if(wine_components)
@@ -1101,9 +1107,12 @@ int main(int argc,char **argv)
     else
     {
         if(early_image_reservation) { VirtualFree(early_image_reservation,0,MEM_RELEASE);early_image_reservation=NULL; }
-        app=load_image(app_arg,app_name);
+        WCHAR path[32768];MultiByteToWideChar(CP_ACP,0,app_arg,-1,path,ARRAY_SIZE(path));
+        app=load_image(path,app_name);
     }
     init_guest_teb(app->base);
+    extern void probe_debug_init(void *,const char *);
+    probe_debug_init(guest_peb,app_name);
     if(!wine_components)set_guest_address_limit(app->nt->FileHeader.Characteristics);
     int arg_start=wine_components?3:2;
     if(wine_components) init_guest_process_params(app,argc>arg_start?argc-arg_start:0,argv+(argc>arg_start?arg_start:argc));
@@ -1159,7 +1168,7 @@ int main(int argc,char **argv)
             DWORD args[]={(DWORD)(uintptr_t)mods[i].base,(DWORD)(uintptr_t)module_path,mods[i].base==nt->base?1:mods[i].base==k32->base?2:&mods[i]==app?3:0};
             if(call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeRegisterModule",0),&gate[2],args,3))fail("Wine module registration");
         }
-        if(!GetFullPathNameW(L"stock-wine",2048,module_path,NULL))fail("Wine DLL directory");
+        if(!probe_runtime_path(module_path,2048,L"stock-wine"))fail("Wine DLL directory");
         DWORD directory_args[]={(DWORD)(uintptr_t)module_path};
         if(call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeSetDllDirectory",0),&gate[2],directory_args,1))fail("Wine dynamic DLL directory");
         wcscpy(module_path,app->path);
