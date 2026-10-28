@@ -8,9 +8,11 @@
 #include "../wine-11.0-source/dlls/wow64/wow64_private.h"
 #include "wine/debug.h"
 #include "shared.h"
+#include "cpu_host.h"
 #include "native_io.h"
 #include "native_loader.h"
 #include "../wine-11.0-source/dlls/ntdll/unixlib.h"
+extern struct guest_cpu *probe_current_cpu(void);
 /* A guest thread can be terminated while entering a native wait. Diagnostic
  * output must not leave the native CRT's shared FILE lock owned by that
  * thread, blocking every surviving service that tries to log a result. */
@@ -496,6 +498,9 @@ NTSTATUS WINAPI Wow64SystemServiceEx(UINT n,UINT *a)
     if(id>=service_limits[(n>>12)&3])return STATUS_INVALID_SYSTEM_SERVICE;
     n&=0x3fff;
     struct temp_frame frame={.service=n},*previous=TlsGetValue(temp_slot);
+    struct guest_cpu *cpu=probe_current_cpu();
+    DWORD previous_context_state=cpu?cpu->context_state:0;
+    if(cpu)cpu->context_state=PROBE_CONTEXT_SERVICE;
     TlsSetValue(temp_slot,&frame);
     InterlockedIncrement((LONG *)&probe_nt_calls);
     /* Wine's original SEH wrapper converts faults while marshalling guest
@@ -503,6 +508,7 @@ NTSTATUS WINAPI Wow64SystemServiceEx(UINT n,UINT *a)
     NTSTATUS status=wow64_syscall(a,(ULONG_PTR)dispatch_nt);
     while(frame.count) free(frame.blocks[--frame.count]);
     TlsSetValue(temp_slot,previous);
+    if(cpu)cpu->context_state=previous_context_state==PROBE_CONTEXT_SERVICE?PROBE_CONTEXT_SERVICE:0;
     if(probe_trace) diagnostic("NT_RETURN %x status=%08lx\n",n,(unsigned long)status);
     if(status<0) diagnostic("NT service %x returned %08lx\n",n,(unsigned long)status);
     /* Reload SS before Wine jumps back to compatibility mode. This fixed

@@ -865,6 +865,7 @@ static struct guest_thread_job *allocate_guest_thread(DWORD entry,DWORD param,SI
     ((TEB32 *)teb)->SkipThreadAttach=(flags&THREAD_CREATE_FLAGS_SKIP_THREAD_ATTACH)!=0;
     job->wine_lifecycle=wine_thread_start!=NULL;
     struct guest_cpu *cpu=&job->cpu;cpu->guest_fs_base=(uintptr_t)teb;probe_cpu_prepare(cpu);
+    cpu->context_state=PROBE_CONTEXT_EXCEPTION;
     ((WOW64_CPURESERVED *)cpu)->Machine=IMAGE_FILE_MACHINE_I386;
     DWORD *sp=(DWORD *)(stack+size-16);sp[0]=(DWORD)(uintptr_t)guest_return_gate;sp[1]=param;
     cpu->ctx.ContextFlags=CONTEXT_I386_FULL;

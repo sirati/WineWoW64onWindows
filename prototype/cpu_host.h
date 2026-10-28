@@ -18,12 +18,15 @@ struct guest_cpu {
     uint64_t magic;
     uintptr_t xsave_ptr;
     struct syscall_frame frame;
+    DWORD context_state;
 } __attribute__((aligned(64)));
 _Static_assert(offsetof(struct guest_cpu,ctx)==4,"Wine CPU flags layout");
 _Static_assert(offsetof(struct guest_cpu,guest_fs_base)-offsetof(struct guest_cpu,ctx)==0x2cc,"guest FS offset");
 _Static_assert(offsetof(struct guest_cpu,host_fs_base)-offsetof(struct guest_cpu,ctx)==0x2d4,"host FS offset");
 _Static_assert(offsetof(struct guest_cpu,magic)-offsetof(struct guest_cpu,ctx)==0x2dc,"CPU cookie offset");
 #define PROBE_CPU_MAGIC UINT64_C(0x57494e4543505531)
+#define PROBE_CONTEXT_EXCEPTION 1u
+#define PROBE_CONTEXT_SERVICE 2u
 _Static_assert(offsetof(struct guest_cpu,xsave_ptr)-offsetof(struct guest_cpu,ctx)==0x2e4,"XSAVE pointer offset");
 _Static_assert(offsetof(struct guest_cpu,frame.xsave)%64==0,"XSAVE alignment");
 struct probe_shared_data { XSTATE_CONFIGURATION XState; };
