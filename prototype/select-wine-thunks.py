@@ -61,3 +61,15 @@ assert identity.count(unix_query) == 1, 'Wine file identity query changed'
 identity = identity.replace(unix_query, '''            status = query_native_file_identity( handle, &st );
             if (status) break;''')
 Path('prototype/out/wine-file-identity.inc').write_text(identity + '\n')
+
+# Retain Wine's per-table service bounds even before every valid entry has a
+# native adapter. Unknown valid services and invalid service IDs differ.
+limits=[]
+for module,first in [('ntdll',0),('win32u',0x1000)]:
+    header=Path('wine-11.0-source/dlls')/module/('ntsyscalls.h' if module=='ntdll' else 'win32syscalls.h')
+    macro=header.read_text().split('#define ALL_SYSCALLS32',1)[1].split('\n#define',1)[0]
+    ids=[int(value,16) for value in re.findall(r'SYSCALL_ENTRY(?:_\w+)?\(\s*(0x[0-9a-f]+),',macro)]
+    assert ids and ids==list(range(first,first+len(ids))), 'Wine service IDs are not contiguous'
+    limits.append(len(ids))
+Path('prototype/out/wine-service-limits.inc').write_text(
+    'static const UINT service_limits[4]={'+','.join(map(str,limits))+',0,0};\n')

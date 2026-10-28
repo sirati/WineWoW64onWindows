@@ -234,6 +234,7 @@ void *(WINAPI *pBTCpuGetBopCode)(void)=probe_get_bop_code;
 unsigned long probe_nt_calls,probe_library_calls;
 int probe_trace;
 extern NTSTATUS WINAPI wow64_NtClose(UINT *);
+extern NTSTATUS WINAPI wow64_NtCallbackReturn(UINT *);
 extern NTSTATUS WINAPI wow64_NtCreateFile(UINT *);
 extern NTSTATUS WINAPI wow64_NtDeleteFile(UINT *);
 extern NTSTATUS WINAPI wow64_NtWaitForSingleObject(UINT *);
@@ -335,6 +336,7 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
     if(probe_trace&&n==0x27)diagnostic("SET_FILE handle=%x class=%u len=%u data=%08lx\n",a[0],a[4],a[3],*(DWORD *)(uintptr_t)a[2]);
     switch(n)
     {
+    case 0x0005: status=wow64_NtCallbackReturn(a);break;
     case 0x0046: status=wow64_NtYieldExecution(a);break;
     case 0x0098: status=wow64_NtGetCurrentProcessorNumber(a);break;
     case 0x006c: status=wow64_NtAreMappedFilesTheSame(a);break;
@@ -484,8 +486,15 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
     return status;
 }
 extern NTSTATUS wow64_syscall(UINT *,ULONG_PTR);
+#include "out/wine-service-limits.inc"
 NTSTATUS WINAPI Wow64SystemServiceEx(UINT n,UINT *a)
 {
+    /* Wine's dispatcher selects one of four tables and rejects an index
+     * outside that table before touching the arguments. The generated limits
+     * come from the same pinned service lists as its PE syscall stubs. */
+    UINT id=n&0xfff;
+    if(id>=service_limits[(n>>12)&3])return STATUS_INVALID_SYSTEM_SERVICE;
+    n&=0x3fff;
     struct temp_frame frame={.service=n},*previous=TlsGetValue(temp_slot);
     TlsSetValue(temp_slot,&frame);
     InterlockedIncrement((LONG *)&probe_nt_calls);

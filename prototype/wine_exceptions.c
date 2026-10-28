@@ -1,6 +1,7 @@
 /* Wine LGPL exception/context code, with native Windows storage adapters.
  * The guest dispatcher and C++ handlers remain in the original Wine DLLs. */
 #include <stdio.h>
+#include <setjmp.h>
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
 #include <windows.h>
@@ -66,7 +67,7 @@ static NTSTATUS remote_thread_context(HANDLE thread,HANDLE process,ULONG_PTR add
                                       I386_CONTEXT *context,BOOL set)
 {
     struct guest_cpu cpu;
-    CONTEXT native={.ContextFlags=CONTEXT_ALL};
+    CONTEXT native={.ContextFlags=CONTEXT_ALL|(!set?(context->ContextFlags&CONTEXT_EXCEPTION_REQUEST):0)};
     NTSTATUS status=NtGetContextThread(thread,&native);
     if(status)return status;
     status=NtReadVirtualMemory(process,(void *)(address-4),&cpu,sizeof(cpu),NULL);
@@ -77,6 +78,9 @@ static NTSTATUS remote_thread_context(HANDLE thread,HANDLE process,ULONG_PTR add
     status=set?set_thread_wow64_context(GetCurrentThread(),context,sizeof(*context)):
                get_thread_wow64_context(GetCurrentThread(),context,sizeof(*context));
     TlsSetValue(target_slot,previous);
+    if(!status&&!set)
+        set_context_exception_reporting_flags(&context->ContextFlags,native.SegCs==0x23?0:
+            (native.ContextFlags&CONTEXT_SERVICE_ACTIVE)?CONTEXT_SERVICE_ACTIVE:CONTEXT_EXCEPTION_ACTIVE);
     if(!status&&set)
     {
         DWORD flags=context->ContextFlags&~CONTEXT_i386;
@@ -138,7 +142,7 @@ static NTSTATUS thread_context(HANDLE handle,I386_CONTEXT *context,BOOL set)
     DWORD native_flags=CONTEXT_ALL|(xstate_extended_features?CONTEXT_XSTATE:0);
     NTSTATUS status=RtlInitializeExtendedContext(native,native_flags,&native_ex);
     if(status){probe_thread_release(thread);return status;}
-    native->ContextFlags=native_flags;
+    native->ContextFlags=native_flags|(!set?(context->ContextFlags&CONTEXT_EXCEPTION_REQUEST):0);
     if(xstate_extended_features)RtlSetExtendedFeaturesMask(native_ex,probe_xsave_mask);
 
     DWORD flags=context->ContextFlags&~CONTEXT_i386;
@@ -149,6 +153,12 @@ static NTSTATUS thread_context(HANDLE handle,I386_CONTEXT *context,BOOL set)
     status=set?set_thread_wow64_context(GetCurrentThread(),context,sizeof(*context)):
                get_thread_wow64_context(GetCurrentThread(),context,sizeof(*context));
     TlsSetValue(target_slot,previous);
+    /* Wine reports x86 user code separately from a saved x86 context while
+     * its native backend is active. Its signal backend marks CS64 as
+     * exception-active; native kernel metadata identifies a blocked syscall. */
+    if(!status&&!set&&!self)
+        set_context_exception_reporting_flags(&context->ContextFlags,native->SegCs==0x23?0:
+            (native->ContextFlags&CONTEXT_SERVICE_ACTIVE)?CONTEXT_SERVICE_ACTIVE:CONTEXT_EXCEPTION_ACTIVE);
     if(!status&&set)
     {
         /* Wine's legacy context copy is also consumed by our full XRSTOR. */
@@ -192,7 +202,7 @@ static NTSTATUS thread_context(HANDLE handle,I386_CONTEXT *context,BOOL set)
         else if(flags&CONTEXT_I386_DEBUG_REGISTERS)
         { native->ContextFlags=CONTEXT_DEBUG_REGISTERS;status=NtSetContextThread(handle,native); }
     }
-    if(probe_trace)fprintf(stderr,"THREAD_CONTEXT done status=%08lx set=%d flags=%08lx self=%d nativecs=%x eip=%08lx esp=%08lx ebp=%08lx\n",status,set,flags,self,native->SegCs,context->Eip,context->Esp,context->Ebp);
+    if(probe_trace)fprintf(stderr,"THREAD_CONTEXT done status=%08lx set=%d flags=%08lx returned_flags=%08lx self=%d nativecs=%x nativeflags=%08lx eip=%08lx esp=%08lx ebp=%08lx\n",status,set,flags,context->ContextFlags,self,native->SegCs,native->ContextFlags,context->Eip,context->Esp,context->Ebp);
     probe_thread_release(thread);return status;
 }
 NTSTATUS WINAPI probe_RtlWow64GetThreadContext(HANDLE thread,WOW64_CONTEXT *context)

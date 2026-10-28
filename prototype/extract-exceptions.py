@@ -16,11 +16,12 @@ loader=(root/'ntdll/loader.c').read_text()
 relocator=re.search(r'^IMAGE_BASE_RELOCATION \* WINAPI LdrProcessRelocationBlock\(.*?^\}',loader,re.M|re.S).group()
 Path('prototype/out/wine-bootstrap-relocations.inc').write_text(relocator+'\n\n'+fn(loader,'perform_relocations')+'\n')
 Path('prototype/out/wine-main-relocations.inc').write_text(fn(loader,'perform_relocations')+'\n')
-parts=[fn(sys,n) for n in ['exception_record_32to64','exception_record_64to32','get_context_return_value','call_user_exception_dispatcher','wow64_NtContinueEx','wow64_NtContinue','wow64_NtRaiseException','Wow64PassExceptionToGuest','Wow64ApcRoutine']]
+parts=[fn(sys,n) for n in ['exception_record_32to64','exception_record_64to32','get_context_return_value','call_user_exception_dispatcher','wow64_NtContinueEx','wow64_NtContinue','wow64_NtRaiseException','Wow64PassExceptionToGuest','Wow64ApcRoutine','wow64_NtCallbackReturn']]
 start=sys.index('/* based on RtlRaiseException:')
 end=sys.index('\n#endif',sys.index('\n#else',start))+len('\n#endif')
 parts.insert(4,sys[start:end])
 parts.insert(0,re.search(r'^struct user_apc_frame\n\{.*?^\};',sys,re.M|re.S).group())
+parts.insert(0,re.search(r'^struct user_callback_frame\n\{.*?^\};',sys,re.M|re.S).group())
 Path('prototype/out/wine-exception-routines.inc').write_text('\n\n'.join(parts)+'\n')
 Path('prototype/out/wine-context-thunks.inc').write_text('\n\n'.join(fn(sys,n) for n in ['wow64_NtGetContextThread','wow64_NtSetContextThread'])+'\n')
 start=sys.index('#ifdef __aarch64__',sys.index(' *           wow64_syscall\n'))
@@ -33,13 +34,14 @@ virtual=(root/'ntdll/unix/virtual.c').read_text()
 Path('prototype/out/wine-stack-growth.inc').write_text(fn(virtual,'grow_thread_stack')+'\n')
 exception=(root/'ntdll/exception.c').read_text()
 Path('prototype/out/wine-extended-context.inc').write_text(exception[exception.index('struct context_copy_range\n'):])
-result=[]
+private=(root/'ntdll/unix/unix_private.h').read_text()
+result=[fn(private,'set_context_exception_reporting_flags')]
 for name,flags in [('set_thread_wow64_context','flags'),('get_thread_wow64_context','needed_flags')]:
     source=fn(signal,name)
     start=source.index('    if (!(wow_frame = get_cpu_area')
     end=source.index('    if ('+('flags & CONTEXT_I386_XSTATE' if flags=='flags' else '(needed_flags & CONTEXT_I386_XSTATE)'))
     core=source[start:source.index('\n    return STATUS_SUCCESS;',end)]
-    core=core.replace('    set_context_exception_reporting_flags( &context->ContextFlags, CONTEXT_SERVICE_ACTIVE );','')+'\n'
+    core+='\n'
     # Internal XSAVE storage is standard layout. Guest/native CONTEXT_EX may
     # be compacted; Wine copy_xstate handles differing source/destination layouts.
     core=core.replace('        if (user_shared_data->XState.CompactionEnabled)\n            frame->xstate.CompactionMask |= xstate_extended_features;\n','')
