@@ -19,7 +19,7 @@ void WINAPI app_entry(void)
     void *handler=AddVectoredExceptionHandler(1,on_trap);
     if(!handler)ExitProcess(72);
     void *volatile *slot=(void *volatile *)(teb+0xe10+index*sizeof(void *));
-    CONTEXT context={.ContextFlags=CONTEXT_DEBUG_REGISTERS};
+    static CONTEXT context={.ContextFlags=CONTEXT_DEBUG_REGISTERS};
     context.Dr0=(DWORD)(ULONG_PTR)slot;context.Dr7=3|(3<<16)|(3<<18);
     if(!SetThreadContext(GetCurrentThread(),&context))ExitProcess(73);
     *slot=(void *)0xdeadbeef;
