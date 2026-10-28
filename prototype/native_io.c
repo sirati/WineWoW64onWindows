@@ -258,8 +258,11 @@ static void finish_io(struct native_io *op,BOOL signal,BOOL pending)
         set_async_iosb((ULONG_PTR)op->guest,op->io.Status,op->io.Information);
     if(signal)
     {
-        if(op->guest_event)SetEvent(op->guest_event);
+        /* A waiter can reuse its OVERLAPPED as soon as its explicit event
+         * wakes. Publish the file notification first, so the old completion
+         * cannot signal it after the new request has reset it. */
         if(!(op->flags&FILE_SKIP_SET_EVENT_ON_HANDLE))SetEvent(op->file->event);
+        if(op->guest_event)SetEvent(op->guest_event);
         if(op->apc)NtQueueApcThread(op->thread,(PNTAPCFUNC)op->apc,(ULONG_PTR)op->context,(ULONG_PTR)op->guest,0);
         else if(op->port&&op->context&&!op->suppress_port&&
                 (pending||!(op->flags&FILE_SKIP_COMPLETION_PORT_ON_SUCCESS)))
