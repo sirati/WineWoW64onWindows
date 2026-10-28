@@ -20,6 +20,7 @@ extern NTSTATUS WINAPI probe_library_dispatch(uint64_t,unsigned int,void *);
 extern unsigned long probe_nt_calls,probe_library_calls;
 extern int probe_trace;
 extern void probe_backend_init(void);
+extern NTSTATUS WINAPI probe_NtGetNlsSectionPtr(ULONG,ULONG,void *,void **,SIZE_T *);
 extern void probe_set_bop_code(void *);
 extern void probe_cpu_init(USHORT,USHORT,USHORT);
 extern BOOL probe_recover_fs(EXCEPTION_POINTERS *);
@@ -563,6 +564,13 @@ static void init_guest_process_params(struct guest_module *app,int argc,char **a
     if(!GetCurrentDirectoryW(1024,cwd)) fail("current directory");
     if(cwd[wcslen(cwd)-1]!=L'\\') wcscat(cwd,L"\\");
     copy_string32(&p->CurrentDirectory.DosPath,cwd,&next);
+    /* Wine's startup initializer retains this buffer capacity. Match the
+     * Windows startup contract before it copies the staging parameters. */
+    if(p->CurrentDirectory.DosPath.MaximumLength<MAX_PATH*sizeof(WCHAR))
+    {
+        next+=MAX_PATH*sizeof(WCHAR)-p->CurrentDirectory.DosPath.MaximumLength;
+        p->CurrentDirectory.DosPath.MaximumLength=MAX_PATH*sizeof(WCHAR);
+    }
     HANDLE dir=CreateFileW(cwd,FILE_TRAVERSE|SYNCHRONIZE,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,0,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS,0);
     if(dir==INVALID_HANDLE_VALUE) fail("current directory handle");
     p->CurrentDirectory.Handle=(DWORD)(uintptr_t)dir;
@@ -609,21 +617,10 @@ static void init_guest_process_params(struct guest_module *app,int argc,char **a
     }
     for(unsigned i=0;i<3;i++)
     {
-        BYTE *dst;SIZE_T size;void *table=NULL;
-        NTSTATUS status=NtGetNlsSectionPtr(i==2?10:11,i==0?GetACP():i==1?GetOEMCP():0,NULL,&table,&size);
-        if(status<0&&i==2)
-        {
-            char path[MAX_PATH];GetWindowsDirectoryA(path,MAX_PATH);strcat(path,"/System32/l_intl.nls");
-            FILE *f=fopen(path,"rb");if(!f) fail("Unicode case table file");
-            fseek(f,0,SEEK_END);size=ftell(f);rewind(f);table=malloc(size);
-            if(!table||fread(table,1,size,f)!=size) fail("read Unicode case table");fclose(f);
-        }
-        else if(status<0) { fprintf(stderr,"NLS status=%08lx table=%u\n",(unsigned long)status,i);fail("native NLS table"); }
-        if(size>16*1024*1024) fail("NLS table limit");
-        dst=low_alloc(0x3d000000+i*0x100000,size,PAGE_READWRITE);
-        if(!dst) fail("NLS table allocation");memcpy(dst,table,size);
-        *(DWORD *)(guest_peb+0x58+i*4)=(DWORD)(uintptr_t)dst;
-        if(status<0) free(table);
+        SIZE_T size;void *table=NULL;
+        NTSTATUS status=probe_NtGetNlsSectionPtr(i==2?10:11,i==0?GetACP():i==1?GetOEMCP():0,NULL,&table,&size);
+        if(status<0) { fprintf(stderr,"NLS status=%08lx table=%u\n",(unsigned long)status,i);fail("guest NLS table"); }
+        *(DWORD *)(guest_peb+0x58+i*4)=(DWORD)(uintptr_t)table;
     }
 }
 static DWORD run_bootstrap_stack(struct guest_cpu *cpu,BYTE *stack,SIZE_T size)

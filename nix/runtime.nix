@@ -52,7 +52,7 @@ in stdenv.mkDerivation {
     cp -R ${wine}/include/wine prototype/include/
     mkdir -p evidence
     python3 prototype/collect-wine-dlls.py ${wine}/lib/wine/i386-windows
-    cp ${wine}/share/wine/nls/{locale,normnfc,sortdefault}.nls prototype/stock-wine/
+    cp ${wine}/share/wine/nls/{l_intl,locale,normnfc,sortdefault}.nls prototype/stock-wine/
     bash prototype/build-linux.sh
     runHook postBuild
   '';

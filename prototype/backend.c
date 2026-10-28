@@ -54,13 +54,12 @@ NTSTATUS WINAPI probe_NtGetNlsSectionPtr(ULONG type,ULONG id,void *unknown,void 
     AcquireSRWLockExclusive(&lock);
     for(unsigned i=0;i<count;i++) if(cache[i].type==type&&cache[i].id==id)
     { *out=cache[i].ptr;*out_size=cache[i].size;ReleaseSRWLockExclusive(&lock);return STATUS_SUCCESS; }
-    const char *wine_path=type==9&&id==0?"stock-wine/sortdefault.nls":type==12&&id==1?"stock-wine/normnfc.nls":NULL;
+    const char *wine_path=type==10&&id==0?"stock-wine/l_intl.nls":type==9&&id==0?"stock-wine/sortdefault.nls":type==12&&id==1?"stock-wine/normnfc.nls":NULL;
     status=wine_path?STATUS_NOT_IMPLEMENTED:NtGetNlsSectionPtr(type,id,unknown,&ptr,&size);
-    if(status<0&&((type==10&&id==0)||wine_path))
+    if(status<0&&wine_path)
     {
         char path[MAX_PATH];
-        if(wine_path) strcpy(path,wine_path);
-        else {GetWindowsDirectoryA(path,MAX_PATH);strcat(path,"/System32/l_intl.nls");}
+        strcpy(path,wine_path);
         FILE *f=fopen(path,"rb");
         if(f) { fseek(f,0,SEEK_END);size=ftell(f);rewind(f);ptr=malloc(size);
                 allocated=ptr!=NULL;if(ptr&&fread(ptr,1,size,f)==size) status=STATUS_SUCCESS;fclose(f); }

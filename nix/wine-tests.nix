@@ -4,13 +4,18 @@
 let
   source = import ./wine-source.nix { inherit fetchurl; };
   cc = pkgsCross.mingw32.buildPackages.gcc;
+  binutils = pkgsCross.mingw32.buildPackages.binutils;
 in runCommand "wine-11.0-upstream-x86-tests" {
-  nativeBuildInputs = [ cc python3 ];
+  nativeBuildInputs = [ cc binutils python3 ];
   hardeningDisable = [ "all" ];
 } ''
   mkdir -p source $out
   tar -xf ${source} -C source --strip-components=1
   compiler=${cc}/bin/i686-w64-mingw32-gcc
+  resource_output="$PWD/kernel32-res.o"
+  (cd source/dlls/kernel32/tests
+   ${binutils}/bin/i686-w64-mingw32-windres -I ../../../include \
+     -i resource.rc -O coff -o "$resource_output")
   "$compiler" -O2 -D__USE_MINGW_ANSI_STDIO=0 -D__WINE_PE_BUILD -D__WINESRC__ -I source/include -include _mingw.h \
     -c source/dlls/winecrt0/debug.c -o debug.o
   # The standalone runner uses console declarations that each test source
@@ -32,10 +37,12 @@ in runCommand "wine-11.0-upstream-x86-tests" {
       kernel32/thread kernel32/sync msvcrt/cpp; do
     module="''${test%/*}"
     name="''${test#*/}"
+    resources=()
+    if [ "$module" = kernel32 ]; then resources+=(kernel32-res.o); fi
     "$compiler" -O2 -g -fno-builtin -D__USE_MINGW_ANSI_STDIO=0 -DSTANDALONE -D__WINE_PE_BUILD \
       -D__WINESRC__ -I source/include -iquote source/include/msvcrt \
       -include ./test-preinclude.h \
-      -nostdlib "source/dlls/$module/tests/$name.c" debug.o \
+      -nostdlib "source/dlls/$module/tests/$name.c" debug.o "''${resources[@]}" \
       "$($compiler -print-file-name=crt2.o)" "$($compiler -print-file-name=crtbegin.o)" \
       -Wl,--dynamicbase,--nxcompat,--no-insert-timestamp,--start-group \
       -lmingw32 -lgcc -lgcc_eh -lmingwex -lmsvcrt -lkernel32 -luser32 -ladvapi32 -lntdll \
@@ -59,7 +66,8 @@ in runCommand "wine-11.0-upstream-x86-tests" {
       'runner': 'unmodified include/wine/test.h STANDALONE',
       'helpers': [{'source': name,
                    'sourceSHA256': hashlib.sha256((pathlib.Path('source') / name).read_bytes()).hexdigest()}
-                  for name in ('include/wine/test.h', 'dlls/winecrt0/debug.c')],
+                  for name in ('include/wine/test.h', 'dlls/winecrt0/debug.c',
+                               'dlls/kernel32/tests/resource.rc', 'dlls/kernel32/tests/wine_test.manifest')],
       'tests': rows}, indent=2) + '\n')
   PY
 ''
