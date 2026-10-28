@@ -505,7 +505,9 @@ static void init_guest_teb(BYTE *image)
     *(DWORD *)(guest_teb+0x04)=0x34003000; *(DWORD *)(guest_teb+0x08)=0x34000000;
     *(DWORD *)(guest_teb+0x18)=(DWORD)(uintptr_t)guest_teb;
     *(DWORD *)(guest_teb+0x20)=pid; *(DWORD *)(guest_teb+0x24)=tid;
-    *(DWORD *)(guest_teb+0x2c)=(DWORD)(uintptr_t)(guest_teb+0xe10);
+    /* Wine allocates the static module TLS array during loader startup.
+     * It must not alias the Win32 TlsAlloc slots in the guest TEB. */
+    teb32->ThreadLocalStoragePointer=0;
     *(DWORD *)(guest_teb+0x30)=(DWORD)(uintptr_t)guest_peb;
     *(DWORD *)(guest_peb+0x08)=(DWORD)(uintptr_t)image;
     /* Native and Wine heaps have different layouts. Initialize Wine's heap
