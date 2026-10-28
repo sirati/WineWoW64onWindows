@@ -1,0 +1,43 @@
+--- a/dlls/msvcrt/except_i386.c
++++ b/dlls/msvcrt/except_i386.c
+@@ -61,6 +61,7 @@
+     cxx_exception_frame          *cxx_frame; /* frame of parent exception */
+     const cxx_function_descr     *descr;     /* descriptor of parent exception */
+     int                           trylevel;  /* current try level */
++    DWORD                         save_esp;  /* parent stack before entering this catch */
+     cxx_frame_info                frame_info;
+ } catch_func_nested_frame;
+ 
+@@ -185,6 +186,9 @@
+ 
+     if (rec->ExceptionFlags & (EXCEPTION_UNWINDING | EXCEPTION_EXIT_UNWIND))
+     {
++        /* A catch funclet can update the parent's saved stack pointer.
++         * Restore it even when a rethrow unwinds past this handler. */
++        ((DWORD *)nested_frame->cxx_frame)[-1] = nested_frame->save_esp;
+         __CxxUnregisterExceptionObject(&nested_frame->frame_info, FALSE);
+         return ExceptionContinueSearch;
+     }
+@@ -232,7 +236,6 @@
+     void *addr, *handler, *object = (void *)rec->ExceptionInformation[1];
+     catch_func_nested_frame nested_frame;
+     int trylevel = frame->trylevel;
+-    DWORD save_esp = ((DWORD*)frame)[-1];
+     thread_data_t *data = msvcrt_get_thread_data();
+ 
+     data->processing_throw++;
+@@ -271,12 +274,13 @@
+         nested_frame.cxx_frame = frame;
+         nested_frame.descr     = descr;
+         nested_frame.trylevel  = tryblock->end_level + 1;
++        nested_frame.save_esp  = ((DWORD *)frame)[-1];
+ 
+         __wine_push_frame( &nested_frame.frame );
+         addr = call_handler( handler, &frame->ebp );
+         __wine_pop_frame( &nested_frame.frame );
+ 
+-        ((DWORD*)frame)[-1] = save_esp;
++        ((DWORD *)frame)[-1] = nested_frame.save_esp;
+         __CxxUnregisterExceptionObject(&nested_frame.frame_info, FALSE);
+         TRACE( "done, continuing at %p\n", addr );
+ 

@@ -16,6 +16,27 @@ let
     ];
     dontStrip = true; # Wine loader private symbols are resolved during the cross build.
   });
+  # Rebuild only the shipped x86 CRTs when their shared exception code changes.
+  # The remaining Wine PEs and native build tools use the existing pinned build.
+  wineCxx = wine.overrideAttrs (old: {
+    pname = "wine-x86-cxx-runtime";
+    patches = old.patches ++ [ ../patches/0008-restore-catch-stack-on-rethrow.patch ];
+    configureFlags = lib.filter (flag: !(lib.hasPrefix "--enable-archs=" flag)) old.configureFlags
+      ++ [ "--enable-archs=i386" "--disable-tests" ];
+    buildPhase = ''
+      runHook preBuild
+      make -j$NIX_BUILD_CORES dlls/msvcrt/i386-windows/msvcrt.dll \
+        dlls/msvcr100/i386-windows/msvcr100.dll dlls/ucrtbase/i386-windows/ucrtbase.dll
+      runHook postBuild
+    '';
+    installPhase = ''
+      runHook preInstall
+      mkdir -p $out/lib/wine/i386-windows
+      cp dlls/msvcrt/i386-windows/msvcrt.dll dlls/msvcr100/i386-windows/msvcr100.dll \
+        dlls/ucrtbase/i386-windows/ucrtbase.dll $out/lib/wine/i386-windows/
+      runHook postInstall
+    '';
+  });
   cc32 = pkgsCross.mingw32.buildPackages.gcc;
   cc64 = pkgsCross.mingwW64.buildPackages.gcc;
   bin32 = pkgsCross.mingw32.buildPackages.binutils;
@@ -56,6 +77,7 @@ in stdenv.mkDerivation {
     cp -R ${wine}/include/wine prototype/include/
     mkdir -p evidence
     python3 prototype/collect-wine-dlls.py ${wine}/lib/wine/i386-windows
+    cp ${wineCxx}/lib/wine/i386-windows/*.dll prototype/stock-wine/i386-windows/
     cp ${wine}/share/wine/nls/{l_intl,locale,normnfc,sortdefault}.nls prototype/stock-wine/
     bash prototype/build-linux.sh
     runHook postBuild
@@ -83,6 +105,7 @@ in stdenv.mkDerivation {
     Wine commit: db11d0fe6a169c457e23d007e20404643d067aa8
     Wine archive: ${wineSource}
     Wine PE build: ${wine}
+    Wine x86 CRT build: ${wineCxx}
     x86 compiler: ${cc32}
     x64 compiler: ${cc64}
     EOF
