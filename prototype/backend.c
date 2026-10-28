@@ -25,7 +25,7 @@ static void diagnostic(const char *format,...)
     SetLastError(error);
 }
 USHORT native_machine=IMAGE_FILE_MACHINE_AMD64,current_machine=IMAGE_FILE_MACHINE_I386;
-ULONG_PTR args_alignment=4,highest_user_address=0xfffeffff,default_zero_bits=0xffffffff;
+ULONG_PTR args_alignment=4,highest_user_address=0x7ffeffff,default_zero_bits=0x7fffffff;
 void (WINAPI *pBTCpuUpdateProcessorInformation)(SYSTEM_CPU_INFORMATION *);
 extern BOOLEAN WINAPI BTCpuIsProcessorFeaturePresent(UINT);
 BOOLEAN (WINAPI *pBTCpuIsProcessorFeaturePresent)(UINT)=BTCpuIsProcessorFeaturePresent;

@@ -81,6 +81,12 @@ for test in stress32 teb32 tls32 tls_slots32 threads32 files32 dynamic32 file_se
   "$cc32" "${guest_flags[@]}" "${test_flags[@]}" prototype/$test.c -lkernel32 prototype/out/libguest_kernel32.a \
     -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/$test.exe
 done
+for mode in normal laa; do
+  test_flags=();test=process_view32
+  if [[ "$mode" == laa ]];then test_flags+=( -DTEST_LARGE_ADDRESS_AWARE -Wl,--large-address-aware );test=process_view_laa32;fi
+  "$cc32" "${guest_flags[@]}" "${test_flags[@]}" prototype/process_view32.c -lkernel32 \
+    -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/$test.exe
+done
 for test in socket_dns32 socket32 socket_extensions32; do
   "$cc32" "${guest_flags[@]}" prototype/$test.c -lws2_32 -lkernel32 \
     -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/$test.exe
@@ -150,9 +156,11 @@ for unit in file process registry security sync syscall system virtual; do
   fi
   if [[ "$unit" == process ]]; then
     extra+=( -fno-asynchronous-unwind-tables -fno-unwind-tables )
+    extra+=( -DNtQueryInformationProcess=probe_NtQueryInformationProcess )
     extra+=( -DNtSetInformationProcess=probe_NtSetInformationProcess -DNtQueueApcThread=probe_NtQueueApcThread -DNtCreateThreadEx=probe_NtCreateThreadEx -DNtTerminateThread=probe_NtTerminateThread -DNtQueryInformationThread=probe_NtQueryInformationThread -DNtSetInformationThread=probe_NtSetInformationThread -DNtGetNextThread=probe_NtGetNextThread )
   fi
   if [[ "$unit" == registry || "$unit" == system || "$unit" == security ]]; then extra+=( -fno-asynchronous-unwind-tables -fno-unwind-tables );fi
+  if [[ "$unit" == system ]]; then extra+=( -DNtQuerySystemInformation=probe_NtQuerySystemInformation );fi
   if [[ "$unit" == sync ]]; then extra+=( -DNtWaitForSingleObject=probe_NtWaitForSingleObject -DNtWaitForMultipleObjects=probe_NtWaitForMultipleObjects -DNtDuplicateObject=probe_NtDuplicateObject );fi
   if [[ "$unit" == virtual ]]; then extra+=( -DNtFreeVirtualMemory=probe_NtFreeVirtualMemory -DNtGetNlsSectionPtr=probe_NtGetNlsSectionPtr -DNtInitializeNlsFiles=probe_NtInitializeNlsFiles -DNtQueryVirtualMemory=probe_NtQueryVirtualMemory );fi
   if [[ "$unit" == file ]]; then extra+=( -DNtDeviceIoControlFile=probe_NtDeviceIoControlFile -DNtLockFile=probe_NtLockFile -DNtOpenFile=probe_NtOpenFile -DNtSetInformationFile=probe_NtSetInformationFile -DNtReadFile=probe_NtReadFile -DNtWriteFile=probe_NtWriteFile -DNtCancelIoFileEx=probe_NtCancelIoFileEx -DNtFsControlFile=probe_NtFsControlFile -DNtCreateNamedPipeFile=probe_NtCreateNamedPipeFile );fi

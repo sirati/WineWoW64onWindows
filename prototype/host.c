@@ -16,6 +16,7 @@ extern void **__wine_unix_call_dispatcher;
 extern UINT cs32_sel,ss32_sel;
 static WORD guest_fs_sel;
 static BYTE *guest_teb, *guest_peb;
+extern ULONG_PTR highest_user_address,default_zero_bits;
 extern NTSTATUS WINAPI probe_library_dispatch(uint64_t,unsigned int,void *);
 extern unsigned long probe_nt_calls,probe_library_calls;
 extern int probe_trace;
@@ -71,6 +72,39 @@ extern void (WINAPI *pBTCpuNotifyMemoryProtect)(void *,SIZE_T,ULONG,BOOL,NTSTATU
 static void *guest_export(struct guest_module *m,const char *name,WORD ordinal);
 static void fail(const char *s);
 static void fail(const char *s) { fprintf(stderr,"FAIL %s, Windows error %lu\n",s,GetLastError()); exit(80); }
+static void set_guest_address_limit(USHORT characteristics)
+{
+    SYSTEM_BASIC_INFORMATION info;
+    NTSTATUS status=NtQuerySystemInformation(SystemEmulationBasicInformation,&info,sizeof(info),NULL);
+    if(status){SetLastError(RtlNtStatusToDosError(status));fail("guest address space information");}
+    /* Wine virtual_set_large_address_space/get_wow_user_space_limit select
+     * the EXE's 2/4 GiB range and reserve the last allocation granule.
+     * Wine process_init then derives the thunk's default ZeroBits mask. */
+    ULONG_PTR limit=(characteristics&IMAGE_FILE_LARGE_ADDRESS_AWARE?UINT64_C(0x100000000):UINT64_C(0x80000000))-1;
+    highest_user_address=min((ULONG_PTR)info.HighestUserAddress,(limit&~((ULONG_PTR)info.AllocationGranularity-1))-1);
+    default_zero_bits=highest_user_address|0x7fffffff;
+}
+NTSTATUS WINAPI probe_NtQuerySystemInformation(SYSTEM_INFORMATION_CLASS type,void *info,ULONG size,ULONG *returned)
+{
+    NTSTATUS status=NtQuerySystemInformation(type,info,size,returned);
+    if(!status&&type==SystemEmulationBasicInformation)
+        ((SYSTEM_BASIC_INFORMATION *)info)->HighestUserAddress=(void *)highest_user_address;
+    return status;
+}
+NTSTATUS WINAPI probe_NtQueryInformationProcess(HANDLE process,PROCESSINFOCLASS type,void *info,ULONG size,ULONG *returned)
+{
+    NTSTATUS status=NtQueryInformationProcess(process,type,info,size,returned);
+    if(!status&&guest_peb&&(process==GetCurrentProcess()||GetProcessId(process)==GetCurrentProcessId()))
+    {
+        if(type==ProcessWow64Information)*(ULONG_PTR *)info=(ULONG_PTR)guest_peb;
+        /* Wine's original thunk adds its fixed PEB32 offset. */
+        else if(type==ProcessBasicInformation)
+            ((PROCESS_BASIC_INFORMATION *)info)->PebBaseAddress=(PEB *)(guest_peb-0x1000);
+    }
+    return status;
+}
+NTSTATUS (WINAPI *__imp_probe_NtQuerySystemInformation)(SYSTEM_INFORMATION_CLASS,void *,ULONG,ULONG *)=probe_NtQuerySystemInformation;
+NTSTATUS (WINAPI *__imp_probe_NtQueryInformationProcess)(HANDLE,PROCESSINFOCLASS,void *,ULONG,ULONG *)=probe_NtQueryInformationProcess;
 static void require_image_relocation_policy(void)
 {
     typedef BOOL (WINAPI *query_policy_t)(HANDLE,PROCESS_MITIGATION_POLICY,void *,SIZE_T);
@@ -1010,6 +1044,7 @@ int main(int argc,char **argv)
         app=load_image(app_arg,app_name);
     }
     init_guest_teb(app->base);
+    if(!wine_components)set_guest_address_limit(app->nt->FileHeader.Characteristics);
     int arg_start=wine_components?3:2;
     if(wine_components) init_guest_process_params(app,argc>arg_start?argc-arg_start:0,argv+(argc>arg_start?arg_start:argc));
     for(unsigned i=0;i<nmods;i++) if(!wine_components||&mods[i]!=app)resolve_imports(&mods[i]);
@@ -1070,6 +1105,7 @@ int main(int argc,char **argv)
         if(load_status)fail("Wine application mapping");
         app->base=(BYTE *)(uintptr_t)*application_base;
         app->nt=(void *)(app->base+((IMAGE_DOS_HEADER *)app->base)->e_lfanew);
+        set_guest_address_limit(app->nt->FileHeader.Characteristics);
         VirtualFree(module_path,0,MEM_RELEASE);
         if((ULONG_PTR)app->base!=app->nt->OptionalHeader.ImageBase)
         {
