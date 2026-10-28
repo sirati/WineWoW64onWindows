@@ -61,6 +61,8 @@ for name,flags in [('set_thread_wow64_context','flags'),('get_thread_wow64_conte
 '''.replace('FLAGS',flags)
     result.append('/* Original Wine context copy core, selected target storage. */\n'+source[:source.index('\n{')]+'\n{\n    struct syscall_frame *frame=get_syscall_frame();\n    I386_CONTEXT *wow_frame;\n'+declarations+'    if(size!=sizeof(I386_CONTEXT))return STATUS_INFO_LENGTH_MISMATCH;\n    if(handle!=GetCurrentThread())return STATUS_NOT_SUPPORTED;\n'+validation+core+'    return STATUS_SUCCESS;\n}')
 thread=(root/'ntdll/unix/thread.c').read_text()
+Path('prototype/out/wine-remote-xstate.inc').write_text('\n\n'.join(
+    fn(thread,n) for n in ['xstate_to_server','xstate_from_server'])+'\n')
 result.insert(0,fn(thread,'fpu_to_fpux'))
 result.insert(0,fn(thread,'fpux_to_fpu'))
 result.insert(0,fn(thread,'get_cpu_area'))

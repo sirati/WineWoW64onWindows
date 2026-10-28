@@ -12,6 +12,7 @@
 #include "../wine-11.0-source/dlls/wow64/wow64_private.h"
 #include "wine/debug.h"
 #include "wine/asm.h"
+#include "wine/server_protocol.h"
 extern struct guest_cpu *probe_current_cpu(void);
 extern TEB32 *probe_current_teb32(void);
 extern void probe_capture_guest_context(const CONTEXT *);
@@ -61,6 +62,20 @@ static typeof(((struct wine_thread_state *)0)->arch) *amd64_thread_data(void)
 #undef NtCurrentTeb
 #define NtCurrentTeb() wine_teb()
 #include "out/wine-self-context.inc"
+#include "out/wine-remote-xstate.inc"
+/* Wine's remote context path passes AVX through the server format, which
+ * omits INIT state. Apply that same conversion to the native storage before
+ * the original context copy, keeping other enabled XSAVE components intact. */
+static void prepare_remote_xstate(struct guest_cpu *cpu)
+{
+    struct { CONTEXT_EX ex; XSTATE xs; } view={0};
+    struct context_data data={0};
+    view.ex.XState.Offset=offsetof(typeof(view),xs);
+    memcpy(&view.xs,&cpu->frame.xstate,sizeof(view.xs));
+    xstate_to_server(&data,&view.ex);
+    xstate_from_server(&view.ex,&data);
+    cpu->frame.xstate.Mask=(cpu->frame.xstate.Mask&~(UINT64)4)|(view.xs.Mask&4);
+}
 /* Use the same Wine context conversion for another host's initial thread.
  * The native thread handle still enforces lifetime and context access rights. */
 static NTSTATUS remote_thread_context(HANDLE thread,HANDLE process,ULONG_PTR address,
@@ -74,6 +89,7 @@ static NTSTATUS remote_thread_context(HANDLE thread,HANDLE process,ULONG_PTR add
     if(status)return status;
     if(cpu.magic!=PROBE_CPU_MAGIC)return STATUS_THREAD_NOT_IN_PROCESS;
     if(native.SegCs==0x23)probe_capture_cpu_context(&cpu,&native);
+    if(!set&&(context->ContextFlags&0x40))prepare_remote_xstate(&cpu);
     struct guest_cpu *previous=TlsGetValue(target_slot);TlsSetValue(target_slot,&cpu);
     status=set?set_thread_wow64_context(GetCurrentThread(),context,sizeof(*context)):
                get_thread_wow64_context(GetCurrentThread(),context,sizeof(*context));
@@ -149,6 +165,7 @@ static NTSTATUS thread_context(HANDLE handle,I386_CONTEXT *context,BOOL set)
     if(!self||(flags&CONTEXT_I386_DEBUG_REGISTERS))status=NtGetContextThread(handle,native);
     if(status){if(probe_trace)fprintf(stderr,"THREAD_CONTEXT native status=%08lx\n",status);probe_thread_release(thread);return status;}
     if(!self&&native->SegCs==0x23)probe_capture_cpu_context(cpu,native);
+    if(!self&&!set&&(flags&0x40))prepare_remote_xstate(cpu);
     struct guest_cpu *previous=TlsGetValue(target_slot);TlsSetValue(target_slot,cpu);
     status=set?set_thread_wow64_context(GetCurrentThread(),context,sizeof(*context)):
                get_thread_wow64_context(GetCurrentThread(),context,sizeof(*context));
