@@ -110,6 +110,15 @@ NTSTATUS WINAPI probe_NtInitializeNlsFiles(void **out,LCID *lcid,LARGE_INTEGER *
     ReleaseSRWLockExclusive(&lock);return status;
 }
 NTSTATUS (WINAPI *__imp_probe_NtInitializeNlsFiles)(void **,LCID *,LARGE_INTEGER *)=probe_NtInitializeNlsFiles;
+NTSTATUS WINAPI probe_NtAllocateVirtualMemoryEx(HANDLE process,void **address,SIZE_T *size,
+                                               ULONG type,ULONG protect,MEM_EXTENDED_PARAMETER *parameters,ULONG count)
+{
+    /* Wine's get_extended_params ignores the pointer when count is zero.
+     * Windows rejects a non-NULL pointer in that case, including the unused
+     * temporary array supplied by the original WoW64 conversion helper. */
+    return NtAllocateVirtualMemoryEx(process,address,size,type,protect,count?parameters:NULL,count);
+}
+NTSTATUS (WINAPI *__imp_probe_NtAllocateVirtualMemoryEx)(HANDLE,void **,SIZE_T *,ULONG,ULONG,MEM_EXTENDED_PARAMETER *,ULONG)=probe_NtAllocateVirtualMemoryEx;
 /* Wine's synchronous LockFile path permits a NULL IO_STATUS_BLOCK. Windows
  * requires one even when failing immediately. Keep Wine's argument thunk
  * and supply storage only for this synchronous native-kernel difference. */
