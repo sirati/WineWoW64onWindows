@@ -43,10 +43,17 @@ in runCommand "wine-11.0-upstream-x86-tests" {
   #include "wincon.h"
   #include "winternl.h"
   EOF
-  for test in ntdll/rtlbitmap ntdll/large_int ntdll/error ntdll/rtlstr \
-      ntdll/string ntdll/time ntdll/env ntdll/exception ntdll/virtual ntdll/thread \
-      kernel32/fiber kernel32/heap \
-      kernel32/thread kernel32/sync msvcrt/cpp; do
+  for test in ntdll/atom ntdll/change ntdll/directory ntdll/env ntdll/error \
+      ntdll/exception ntdll/file ntdll/generated ntdll/info ntdll/large_int \
+      ntdll/om ntdll/path ntdll/pipe ntdll/port ntdll/reg ntdll/rtl \
+      ntdll/rtlbitmap ntdll/rtlstr ntdll/string ntdll/sync ntdll/thread \
+      ntdll/threadpool ntdll/time ntdll/unwind ntdll/virtual ntdll/wow64 \
+      kernel32/codepage kernel32/environ kernel32/fiber kernel32/format_msg \
+      kernel32/heap kernel32/locale kernel32/path kernel32/sync \
+      kernel32/thread kernel32/time kernel32/timer kernel32/version kernel32/virtual \
+      msvcrt/cpp msvcrt/data msvcrt/dir msvcrt/environ msvcrt/file msvcrt/heap \
+      msvcrt/locale msvcrt/misc msvcrt/printf msvcrt/scanf msvcrt/signal \
+      msvcrt/string msvcrt/time; do
     module="''${test%/*}"
     name="''${test#*/}"
     resources=()
