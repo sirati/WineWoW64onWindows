@@ -47,6 +47,25 @@ hash-pinned unmodified applications. Copy that output to `prototype/unmodified`
 beside the test runners. Mutable vendor URLs fail if their content no longer
 matches the pinned hash.
 
+Unmodified upstream Wine test sources have a separate x86 cross-build:
+
+```sh
+nix build .#wine-tests --out-link result-wine-upstream-tests
+mkdir -p prototype/out/upstream-tests
+cp -R --no-preserve=mode result-tests/prototype/out/. prototype/out/
+cp -R --no-preserve=mode result-wine-upstream-tests/. prototype/out/upstream-tests/
+```
+
+On Windows, run `prototype/run-wine-tests.ps1`. It compares native Windows
+with the port, records assertion summaries, raw output, numeric exits and
+timeouts, and verifies each test executable against its source/build manifest.
+The default selection covers ntdll routines and C++ runtime behavior.
+The kernel32 fiber, heap, thread and synchronization suites are opt-in through
+`-Tests`. They include cases that require excluded NT services or subprocess
+support, so their failures need individual diagnosis. Failures unrelated to
+GUI or excluded services take priority. The test build uses Wine's original
+standalone runner and Windows debug helper without changing their sources.
+
 Windows VM execution is a separate validation step. Luna 6 runs those tests
 from a frozen, separate Git worktree. The test bundle records the commit and
 every deployed file's SHA256. Test runners and diagnostics are not runtime
@@ -68,5 +87,7 @@ is recorded in [the image-bootstrap report](docs/validation-d34a200.txt).
 The [focused follow-up](docs/validation-d7eaf54.txt) verifies the corrected
 context/I/O exit stress cases, canonical-address collisions and clean policy
 failures.
-CET and forced termination during adapter calls remain open. Universal unmodified
-application compatibility is not established.
+The [wait-entry regression](docs/validation-5c02e38.txt) passes 100 runs after
+removing the two demonstrated lock hazards. CET and arbitrary termination
+during other adapter calls remain open. Universal unmodified application
+compatibility is not established.

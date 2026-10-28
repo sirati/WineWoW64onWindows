@@ -1,0 +1,54 @@
+Wait-entry termination regression, 2026-10-28
+
+Candidate: 5c02e38aafd8e046b8ec708f82890923ee7c09ae
+wine-host.exe SHA256:
+5F201A4BC815793C649C63B7E1ABF8DB42A6169501431EB6302E22FC7F878FCE
+Nix tests output:
+/nix/store/5b06k8z84d8v44yxmpzw736ar6gni52m-wine-wow64-windows-11.0-tests
+
+Native non-file waits now query the native object type before consulting the
+file notification registry. This removes the registry lock from event/thread
+wait entry while retaining the existing file publication ordering. Service
+diagnostics format into a stack buffer and write directly to stderr, avoiding
+the shared CRT FILE lock that another terminated issuer had abandoned.
+
+Luna 6 ran the frozen candidate in throwaway Windows VMs. The primary audited
+the raw JSON, actual arguments, exact fixture markers and numeric exits.
+
+| Control | Native runs | Port runs | Result |
+|---|---:|---:|---|
+| Original io_thread_exit32 wait-entry race, tracing enabled | N/A | 50 | All pass, mode 0, debugger exit 0 |
+| Original wait-entry race, tracing disabled | N/A | 50 | All pass, mode 0, debugger exit 0 |
+| Separate io_thread_exit32 --spin control | 1 | 10 | All pass, mode 1 |
+| io_notify32 | 1 | 5 | All pass |
+| apc32, socket32, socket_extensions32, thread_context32, thread_create32 | 1 each | 5 each | All pass |
+| callback_worker32 | N/A | 5 | All pass |
+| async_event32 with async-peer64 | 1 | 5 | All pass, both guest and peer exit 0 |
+| pipe_control32 with async-peer64 --pipe-control | 1 | 5 | All pass, both guest and peer exit 0 |
+
+No accepted run timed out. Every port run includes the successful Wine loader
+marker. The 100 race controls contain the exact io_thread_exit32 success text,
+mode 00000000, debugger numeric exit 0 and no --spin argument. These replace
+the three failed wait-entry controls recorded against 5d34797. This result
+covers the demonstrated wait-entry failures. Arbitrary termination while a
+different adapter or native library holds a lock remains unverified.
+
+Rejected prerequisite runs
+
+The first generic regression invocation omitted async-peer64. async_event32
+failed in native Windows and the port with exit 109 / GetLastError 2;
+pipe_control32 failed natively with exit 175 / GetLastError 2. The fixture
+sources identify these stages as opening the peer's named pipe. These are
+invalid executions of these controls. The corrected runs use the existing
+run-async-tests.ps1 -Repeats 5, and the same command with -PipeControls,
+which start the peer and require its readiness message before the guest.
+
+Local raw evidence:
+/home/sirati/.t3/scratch/2026-10-28-wine-wait-lock-luna/evidence/vm-test-wait-lock-results/raw/
+evidence/wait-lock-audit/async-report.json
+evidence/wait-lock-audit/pipe-control-report.json
+
+Corrected async report SHA256:
+0e8409d1a758b3f6be671f5ef3fc752d5bf5a2d0f42a449eb173bff585cd342c
+Corrected pipe-control report SHA256:
+5528c3279c06ff745d3a20a86cfa8f264c2e4c35ef9b9a1d04e9a1b8f2e741de

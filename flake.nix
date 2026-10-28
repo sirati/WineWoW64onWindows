@@ -12,6 +12,7 @@
     packages.${system} = {
       default = runtime;
       corpus = pkgs.callPackage ./nix/corpus.nix { };
+      wine-tests = pkgs.callPackage ./nix/wine-tests.nix { };
       image-mapping-diagnostic = pkgs.callPackage ./nix/image-diagnostic.nix { };
       continuation-diagnostic = pkgs.callPackage ./nix/continuation-diagnostic.nix { };
       shadow-stack-diagnostic = pkgs.callPackage ./nix/shadow-stack-diagnostic.nix { };

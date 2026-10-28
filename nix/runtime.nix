@@ -1,11 +1,7 @@
 { lib, stdenv, fetchurl, wineWow64Packages, pkgsCross, python3, perl,
   clang, lld, project }:
 let
-  wineSource = fetchurl {
-    # wine-11.0 tag, db11d0fe6a169c457e23d007e20404643d067aa8.
-    url = "https://dl.winehq.org/wine/source/11.0/wine-11.0.tar.xz";
-    hash = "sha256-wHpoV5M8H8YN/1RI1585ySSBwenbWqYo250DWERuBwE=";
-  };
+  wineSource = import ./wine-source.nix { inherit fetchurl; };
   wine = (wineWow64Packages.minimal.override {
     mingwSupport = true;
     embedInstallers = false;
@@ -74,6 +70,7 @@ in stdenv.mkDerivation {
     cp docs/validation-d34a200.txt $out/docs/
     cp docs/validation-22ec829.txt $out/docs/
     cp docs/validation-d7eaf54.txt $out/docs/
+    cp docs/validation-5c02e38.txt $out/docs/
     cp docs/cet-investigation.txt $out/docs/
     cp docs/loader-relocation-regression.txt $out/docs/
     cat > $out/docs/build-inputs.txt <<EOF
