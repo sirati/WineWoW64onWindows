@@ -7,6 +7,11 @@ Difficulty is for this prototype, not for full Wine.
 
 Upstream test failures unrelated to GUI or excluded NT services take priority.
 The current per-suite results and easiest fixes are in docs/upstream-wine-tests.txt.
+That report includes native controls, rejected test runs and the source of each
+failure classification. The original upstream fiber suite now completes with
+only its excluded subprocess failures. Static TLS and the shared-clock-page
+query also have verified fixes. Alignment-exception dispatch and the remaining
+memory-accounting differences still require work.
 
 | Area | Current result | Likely fix | Difficulty |
 |---|---|---|---|
@@ -18,6 +23,7 @@ The current per-suite results and easiest fixes are in docs/upstream-wine-tests.
 | Provider-specific Winsock controls | Standard TCP/UDP, DNS, poll/event, overlapped, IOCP, AcceptEx, ConnectEx, TransmitFile and WSARecvMsg IP_PKTINFO pass. Unknown provider ioctls return `STATUS_NOT_SUPPORTED`. | Add one native control adapter at a time with a matching 32-bit marshalling test. | Medium per control |
 | Forced issuer termination | 5c02e38 passes 100 original wait-entry controls, half with tracing, plus native and ten Wine --spin controls. Corrected event/pipe prerequisites and notification, APC, socket, thread and callback regressions pass. See docs/validation-5c02e38.txt. | The demonstrated file-registry and CRT diagnostic lock failures are fixed. Arbitrary termination while another adapter or native library owns a lock remains unverified. | High for arbitrary termination |
 | Concurrent thread-context lifetime | Storage now survives until the final thread-record reference. Native plus thirty Wine thread_exit_context32 runs pass, each racing context queries against termination across 64 lifetimes. Full 22ec829 runtime regression also passes. | The demonstrated storage-lifetime gap is fixed. Other information classes and unrelated services remain outside current coverage. | Verified |
+| Converted fiber surviving thread exit | 28fc57f completes the upstream fiber suite, with only two subprocess failures. Ten Wine survivor controls pass and ten pre-fix runs crash. The focused fixture also crashes in native Windows ntdll; it is not a passing native control. | Keep the stack selected by Wine's final DeallocationStack under the corresponding fiber's ownership. Wine DeleteFiber releases the retained stack. | Verified Wine regression |
 | Extended APCEx2/reserve-object variants | Basic, initial suspended-thread, nested, alertable and I/O completion APC paths pass. APCEx2 reserve-object combinations are additional services outside the current scope. | Reuse Wine's APC frame and continuation code, then add native reserve-object bookkeeping. | Medium |
 | Less common thread information classes | Guest thread enumeration, TLS clearing, suspended creation and remote context subset pass. Other thread information classes are not mapped. | Add mappings only where an application needs them, using Wine's existing 32-bit structures. | Low to medium |
 | C++ nested returning-helper diagnostic | The focused nested-return diagnostic still fails in stock Wine 11 as well as the port. Normal catches, rethrow, destructor cleanup, worker exceptions and SEH pass. | First reproduce with a current upstream Wine build, then decide whether the test is invalid or needs a Wine exception-frame fix. | Unknown |

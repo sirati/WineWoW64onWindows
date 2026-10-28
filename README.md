@@ -22,7 +22,8 @@ Nix pins its toolchain through `flake.lock`. Wine is the hash-pinned 11.0 releas
 archive, corresponding to tag `wine-11.0`, commit
 `db11d0fe6a169c457e23d007e20404643d067aa8`. The build applies source patches,
 regenerates Wine headers and PE DLLs, then compiles the Windows host adapters
-and original Wine WoW64 translation units. No locally installed MinGW, copied
+and selected original Wine WoW64 thunks with native unwind information.
+No locally installed MinGW, copied
 Wine installation, prebuilt DLL or absolute developer store path is an input.
 The Linux Wine build supplies build tools and PE components. Its Unix runtime
 is not shipped as the Windows execution backend.
@@ -74,6 +75,19 @@ dependencies. The standalone image-mapping and context-continuation helpers
 are available through `nix build .#image-mapping-diagnostic` and
 `nix build .#continuation-diagnostic`. `nix develop` supplies Python for source
 and evidence helper scripts.
+
+To prepare a frozen VM bundle directly from Nix outputs, commit the candidate
+and run:
+
+```sh
+nix develop -c python3 prototype/bundle-vm-candidate.py \
+  --out-directory result-tests/prototype/out \
+  --upstream-directory result-wine-upstream-tests \
+  --corpus-directory result-corpus
+```
+
+The helper requires a clean checkout and writes the archive and file manifest
+under `evidence/`. The VM verifies the deployed files before execution.
 
 This is still a port in development. Nix candidate `22ec829` passed the required
 headless application, socket, APC, IOCP, callback, thread, context, XSTATE,

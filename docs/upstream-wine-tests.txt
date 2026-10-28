@@ -51,15 +51,19 @@ Expanded suites and next fixes
 
 | Finding | Cause or next action | Difficulty |
 |---|---|---|
-| Tick counts have wrong units | Wine ignores TickCountMultiplier because its Unix backend supplies milliseconds. Honor the multiplier and verify against elapsed time. | Low |
-| TLS slot 16 not reserved | Mirror Wine's loader initialization using NTDLL_TLS_ERRNO from its own header. | Low |
-| Worker says already a fiber | New thread staging copies the parent's fiber flag and active activation frames. Clear those fields before Wine initializes the worker. | Low to medium |
-| Single-step exception has status 4000001e | Normalize Windows WX86 statuses before Wine's dispatcher, then investigate later exception failures. | Low for conversion; later failures unclassified |
-| GlobalMemoryStatus discrepancies | Four assertions differ before heap subprocess tests. Diagnose memory accounting separately from missing subprocess services. | Medium |
-| Virtual allocation zero-bits/size discrepancies | Existing allocation semantics need separate controls. Later cases enter unsupported allocation variants. Preserve both observations. | Medium |
-| Full fiber suite | Original resources remove missing-manifest errors. Native Windows then reports private FLS-layout mismatches; the port has a separate worker-fiber defect. | Mixed |
-| Full exception suite | Native has 230 failures, mostly context/debugger expectations. The port stops earlier in exception tests. Diagnose each location. | Medium to high |
-| Timezone names and hypervisor shared page | Native information differs from Wine's Unix backend. The time test dereferences a null hypervisor-page pointer after an unsupported information-class assertion. | Medium; information-class scope needs separate treatment |
+| Tick counts have wrong units | Fixed in all five kernel32/kernelbase/ntdll exports. Native plus five Wine elapsed-time runs pass. | Completed for tested paths |
+| TLS slot 16 not reserved | Reserve NTDLL_TLS_ERRNO from Wine's own header. Its upstream thread assertion is gone. | Completed for tested paths |
+| Worker says already a fiber | Clear inherited fiber flags and activation frames before Wine initializes the worker. Fiber regressions pass. | Completed for tested paths |
+| Static TLS corrupts reserved dynamic slot 0 | Leave ThreadLocalStoragePointer empty until Wine allocates the module TLS array. Native plus ten Wine fixture runs pass; prior runtime exits 71. | Completed for tested paths |
+| Single-step exception has status 4000001e | Translate Windows WX86 statuses before Wine's dispatcher. The single-step assertion is gone; alignment exceptions remain separate. | Completed conversion |
+| Self process identity and address limits | Reserve the two boundary granules as well as selecting Wine's per-EXE limit. Native plus five Wine runs per mode pass, including an LAA allocation above 2 GiB. | Completed for tested paths |
+| GlobalMemoryStatus discrepancies | Refreshing process counters removes heap.c:3671 in three runs. The remaining in-scope assertion concerns Wine's legacy pagefile clamp at heap.c:3685. | Medium |
+| Virtual allocation zero-bits/size assertions | Native x86 and x64 return the same STATUS_CONFLICTING_ADDRESSES for ZeroBits=20 and size 0x10000 after zero-length decommit. The test permits these known Windows variations only outside Wine. | Native behavior confirmed; raw assertions retained |
+| Full fiber suite | Port completes 32,956 checks with only two subprocess-related failures. Native reports 4,115 private FLS-layout assertions. The focused survivor fixture crashes natively and passes in Wine; preserve that qualification. | Completed in-scope suite cases |
+| Full exception suite | Guest alignment faults recurse in native Windows ntdll while it constructs the exception frame, before the VEH is called. A later handler cannot fix this boundary. | High |
+| Full kernel32 thread suite | Reserved TLS and extreme priorities are fixed. The next crash is a NULL GROUP_AFFINITY32 argument in the original thunk. Integrate Wine's original protected syscall wrapper. | Medium; wrapper validation pending |
+| Timezone names | Both native x86 and x64 return the same direct names as the port. The test accepts these on Windows through broken(), but rejects them on Wine. | Native behavior confirmed; raw assertions retained |
+| Hypervisor shared page | Convert the live native mapping's pointer through Wine's existing thunk. The time suite now completes 10,667 checks instead of crashing. | Completed query conversion |
 | Missing sync/thread/process NT services | SignalObjectAndWait and subprocess creation have dependent failures. Only causally established service failures are excluded. | Excluded where established |
 
 The first kernel32 builds omitted resource.rc/wine_test.manifest. Native
@@ -76,3 +80,207 @@ Local evidence outside Git, in separate frozen checkouts:
 2026-10-28-wine-nls-resources-luna/evidence/nls-resources-results/
 The initial runner selected a child's native kernel32 heap summary. The raw
 parent summary is 281,456 checks / 0 failures. Parent-PID matching fixes this.
+
+Follow-up candidate d62140fb0bd7337691cab841319242a41f2e2210
+
+Embedding the original ntdll test DLL removes the missing-resource failure.
+The native thread suite passes 49 checks. Its remaining sixteen port failures
+are at lines 147/151/153 and 266/268 for process creation/termination, and
+326 through 366 for APCEx/reserve-object/APCEx2 services. Source inspection
+ties these failures to services excluded from this phase. The earlier TLS
+entry 16 assertion is gone after reserving Wine's NTDLL_TLS_ERRNO slot.
+The earlier single-step status assertion at exception.c:1042 is also gone
+after translating native WX86 statuses. The full exception suite still stops
+with 0x80000002, and the full fiber suite still crashes. These are open.
+All eighteen focused runtime runs and seven required exception checks pass.
+
+The first tick patch is an explicitly rejected intermediate result. Across a
+200 ms sleep its five port runs report 13/203/13 ms for kernel32 GetTickCount,
+ntdll NtGetTickCount and kernel32 GetTickCount64. Native controls report about
+200 ms for all three. The same fixture on the verified pre-patch fcf5a13
+runtime fails with 13/13/13 ms, establishing a negative control. Wine has
+separate implementations in kernel32 and kernelbase; the next patch covers
+both DLLs and checks all five exports against elapsed time.
+Raw evidence: 2026-10-28-wine-priority-fixes-luna/evidence/priority-fixes-results/
+
+Verified tick fix, fa613d14f6eae1096a20c4ba536baf9f88f83ad3
+
+The final patch covers the separate kernel32 implementations as well as
+kernelbase and ntdll. The frozen 121-file bundle SHA256 is
+f6496bb944eaeced7b0b7836d920059baad9cf1844c4845b47695fa2ea1850df.
+All six tick runs pass, native plus five Wine. Ninety sampled elapsed values
+across the five exports range from 187 to 219 ms for a 200 ms sleep.
+The primary independently checked the archive members, fixture/load markers,
+numeric exits, timeouts and raw reports. Cross checks pass 29/29, unmodified
+commands 16/16, and eighteen focused runtime runs pass. Seven required
+exception/lifecycle checks pass; the optional nested-return diagnostic AVs.
+The default upstream runner exits 1, retaining native time/environment
+assertions and the port time crash. Direct child PowerShell execution records
+the runner's actual exit, avoiding an earlier outer-wrapper status masking.
+Evidence: 2026-10-28-wine-priority-fixes-luna/evidence/tick-complete-validation/
+
+Verified fiber fix, 28fc57fdd9e621c6b519ce5d60118f52e21528e5
+
+Thread cleanup previously released the original worker stack even if Wine
+had preserved it as a converted fiber and the thread exited on another stack.
+The adapter now releases the final TEB DeallocationStack. Wine DeleteFiber
+owns the retained allocation, and the stack registry follows its migration.
+The original upstream fiber suite now completes 32,956 checks, exits 2 and
+does not time out. Its only failures are fiber.c:1061 and :1063, from the
+excluded child-process test. Native completes 32,948 checks with 4,115
+private FLS-layout failures and exits 255.
+
+The focused survivor fixture passes ten Wine runs, including resumption on
+another thread and allocation release. Its ten pre-fix Wine runs AV. The
+same fixture AVs natively in Windows SysWOW64 ntdll, RVA 0x673f3, so this is
+a Wine regression control, not a passing native compatibility control.
+Fiber switching/overflow, stack growth/overflow, callbacks, thread-context
+lifetime and the spin-mode I/O issuer-exit regressions pass without timeouts.
+Evidence: 2026-10-28-wine-priority-fixes-luna/evidence/fiber-survivor-validation/
+
+Verified TLS fix, bc60ded49c26df01d8523a4bd244b53e8fe75d03
+
+The initial ThreadLocalStoragePointer aliased TEB TlsSlots. Wine's static
+module TLS allocator could then write a module pointer into reserved dynamic
+slot 0. Initializing the static pointer to NULL leaves allocation to Wine.
+The fixture checks static module data, a dynamically loaded TLS DLL, reserved
+slot 0 and independent Win32 slot values in the main and worker threads.
+Native plus ten Wine runs pass. The verified prior runtime, with only this
+fixture added, exits 71. Cross checks pass 29/29 and all seven required
+exception/lifecycle cases pass. The original kernel32 thread suite no longer
+reports its reserved-slot failures at lines 2264/2272. It still crashes later
+after other failures; the whole suite remains incomplete.
+Evidence: 2026-10-28-wine-tls-slots-luna/evidence/vm-results/
+
+Process view implementation, 8fd984b617f04a0e4a1a4d87634cc10fc503475e
+
+Wine's unmodified query thunks now receive guest process metadata from the
+Windows adapter. Self ProcessWow64Information identifies the guest PEB;
+ProcessBasicInformation preserves Wine's fixed PEB32 offset conversion.
+SystemEmulationBasicInformation and the default ZeroBits mask follow the
+main EXE's large-address-aware flag, as Wine's Unix startup normally does.
+The first fixture report falsely labeled ten hello32 executions as passes.
+Primary inspection found empty actual arguments and missing fixture/load
+markers. Those rows are rejected. A separate correctly launched run exits
+71 at excluded NtOpenProcess before reaching the queries. The revised fixture
+uses supported DuplicateHandle to obtain a real self handle. It checks
+pseudo and real handles, guest PEB identity, IsWow64Process, GetSystemInfo,
+GlobalMemoryStatusEx and top-down allocation limits. Its correctly launched
+five Wine runs per mode now pass the early identity/information checks but
+exit 79 at top-down allocation. Neither prints its success marker. Both
+native controls pass. The implementation is not accepted as complete.
+Cross checks pass 29/29. The heap suite completes 278,579 checks, with two memory-status
+assertions and twenty-two assertions tied to excluded child-process cases.
+The virtual suite loses its false non-WoW64 bitmask assertion; its ZeroBits=20
+status and zero-length decommit size differences remain before excluded
+extended-allocation cases. Native virtual also fails later. The default
+time crash is independent and still present on this candidate.
+Evidence: 2026-10-28-wine-process-view-luna/evidence/vm-results/
+
+Verified shared-page conversion, c85a71d8b5f0f3ee25e3e7f57af93660c2e0dee3
+
+Native x64 NtQuerySystemInformation class 197 returns a live read-only
+mapping at 0x7ffef000. Wine's WoW64 thunk now converts this pointer's output
+size to ULONG. It preserves the mapping and does not copy volatile clock data.
+The candidate completes 10,667 upstream time checks without a timeout,
+exiting 54. The prior verified bundle still crashes after its failed class-197
+query, with an x86 read access violation at address 8. The three class-197
+status/length/address assertions are gone. Native executes the same 10,667
+checks, with five timer-resolution failures. Six port timezone string
+assertions remain, and most later failures involve excluded time services.
+Tick, XSTATE-component and thread-context regressions pass in both modes.
+Evidence: 2026-10-28-wine-shared-page-luna/evidence/shared-page-results/
+
+Alignment exception boundary
+
+The full ntdll exception test sets EFLAGS.AC and deliberately performs an
+unaligned x86 access. Debugger evidence shows the initial guest alignment
+exception, followed by repeated alignment faults in native Windows ntdll
+while it builds the exception context. Those occur before the port's VEH
+can switch to the saved native stack or call Wine's dispatcher. Clearing AC
+only in that later handler cannot repair the demonstrated failure.
+The original Wine C++ handlers and SEH dispatcher remain in use; the seven
+required C++/SEH/lifecycle controls pass. The missing piece is this native
+Windows exception-entry boundary, not another C++ unwinder implementation.
+
+The separate alignment-policy-diagnostic Nix output builds a test bridge
+that sets SEM_NOALIGNMENTFAULTEXCEPT and prints the resulting process flags.
+It tests whether an existing Windows policy can resolve the entry problem.
+It is not included in the runtime and is not an adopted workaround.
+Preserve HIGH_ENTROPY_VA and the debugger/IRETQ behavior during investigation.
+
+Memory cache follow-up, e66ddd5, tested in f5a034f
+
+The patch refreshes ProcessVmCounters while retaining Wine's one-second
+system-memory cache and its existing available-virtual-memory formula.
+All three upstream kernel32 heap runs now pass the working-set assertion at
+heap.c:3671. Each completes 278,587 checks and exits 23, comprising the legacy
+pagefile clamp assertion at :3685 and twenty-two excluded subprocess failures.
+Native heap passes all three runs. Cross checks pass 29/29, seven required
+exception/lifecycle checks pass, and the unmodified corpus's fifteen required
+commands pass with output hashes. The five focused runtime fixtures each
+pass native plus five Wine runs. Async/event and pipe controls each pass
+native plus five Wine runs with their peers. TLS slots pass six more runs.
+The top-down process-view failure described above remains a separate defect.
+Evidence: 2026-10-28-wine-memory-fresh-luna/evidence/vm-results/
+
+Native boundary controls
+
+Native x86 and x64 PowerShell probes return STATUS_CONFLICTING_ADDRESSES for
+ZeroBits=20 and return RegionSize=0x10000 after zero-length MEM_DECOMMIT on a
+64 KiB allocation. They also return the same literal timezone names as the
+port. Wine's test broken() accepts these variations on Windows, while its
+Wine execution still counts them as unexpected. Keep those raw assertions;
+the native controls do not justify changing the port's matching behavior.
+
+Native x64 top-down allocations with ZeroBits masks 0x7fffffff and 0xffffffff
+succeed at 0x7fff0000 and 0xffff0000 respectively. Their 64 KiB ranges extend
+past the guest HighestUserAddress. The adapter now reserves these two final
+granules before loading the native bridge or guest DLLs. Validation is pending.
+
+NtSetInformationThread(ThreadBasePriority) rejects +/-15 and accepts +/-16
+on both architectures. GetThreadPriority reports +/-15, while the raw native
+thread information reports +/-16. The adapter now translates the two extremes
+to preserve Wine's existing wrapper/backend representation. Validation is
+pending in the initial candidate and passes in the follow-up below.
+
+The alignment policy DLL prints process flags 3 then 7, confirming that it
+sets SEM_NOALIGNMENTFAULTEXCEPT. Both ordinary and policy runs still stop in
+native Windows ntdll with 0x80000002. The policy is rejected as a solution;
+it remains a separate test helper and is never enabled by the runtime.
+Evidence: 2026-10-28-wine-native-boundary-luna/evidence/boundary-results/
+
+Verified boundaries and priorities, 0ea4f044e2c39905c3ab9d26508b4d3501242c63
+
+Both process-view fixtures and the extreme-priority fixture now pass native
+plus five Wine runs each. Primary inspection confirms actual arguments,
+fixture/load markers, numeric exits and no timeouts in all eighteen rows.
+The 2 GiB top-down allocations stay at or below 0x7ffeffff; LAA allocations
+reach 0xfffe0000 and end at 0xfffeffff. Current-thread and suspended-worker
+priorities round-trip through the original Wine wrappers. The verified prior
+runtime, with only the three new fixtures injected, exits 79, 79 and 72.
+Cross checks pass 29/29; required exceptions/lifecycle, the fifteen required
+corpus commands, focused XSTATE/context/fiber/APC/notification controls and
+async/event/pipe controls pass. Original fiber and heap outcomes remain exit
+2 and 23 respectively. The full thread suite still crashes later and must
+not be described as passing.
+Evidence: 2026-10-28-wine-boundaries-priority-luna/evidence/vm-results/
+
+Protected syscall integration, validation pending
+
+The later kernel32 thread crash reads NULL while Wine converts a
+GROUP_AFFINITY32 for NtSetInformationThread. The test deliberately supplies
+NULL and expects STATUS_ACCESS_VIOLATION. The fault is in original
+wow64/process.c:1062, host RVA 0x1c942 on the verified 0ea4f04 candidate.
+Wine normally catches such faults in its wow64_syscall SEH wrapper. The port
+had called the thunks directly. The next change extracts that original
+wrapper, handler and invalid-handle dispatcher helper, and uses native
+RtlUnwind to return status before releasing temporary conversion storage.
+
+The native thunk translation units need unwind information for that handler
+to walk their frames. Enabling it also retains unused functions through
+COFF .pdata references. The cross build therefore selects only the original
+supported thunk definitions, preserving helpers, bodies and upstream line
+numbers. It does not introduce stubs or additional guest services. Static PE
+inspection verifies unwind ranges for the protected wrapper and the two
+focused fault paths. VM validation is still required.
