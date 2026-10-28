@@ -8,15 +8,21 @@ static BOOL same(const WCHAR *a,const WCHAR *b)
 {
     while(*a&&*a==*b){a++;b++;}return *a==*b;
 }
-static BOOL contains(const WCHAR *text,const WCHAR *needle)
+static BOOL arguments_match(void)
 {
-    for(;*text;text++)
-    {
-        const WCHAR *a=text,*b=needle;
-        while(*b&&*a==*b){a++;b++;}
-        if(!*b)return TRUE;
-    }
-    return FALSE;
+    static const WCHAR *expected[]={L"arg-\x03a9-\xd83d\xde00",L"",L"two words",
+                                    L"quote\"inside",L"space slash\\"};
+    /* Wine reconstructs a Windows command line from argv.  Equivalent quote
+     * spellings must retain the same arguments, including an empty argument,
+     * embedded quotes and a backslash before the closing quote. */
+    typedef int (__cdecl *getargs_t)(int *,WCHAR ***,WCHAR ***,int,int *);
+    HMODULE crt=LoadLibraryW(L"msvcrt.dll");
+    getargs_t getargs=crt?(getargs_t)GetProcAddress(crt,"__wgetmainargs"):NULL;
+    int count=0,newmode=0;WCHAR **arguments,**environment;
+    if(!getargs||getargs(&count,&arguments,&environment,0,&newmode)||count!=ARRAY_SIZE(expected)+1)
+        return FALSE;
+    for(unsigned i=0;i<ARRAY_SIZE(expected);i++)if(!same(arguments[i+1],expected[i]))return FALSE;
+    return TRUE;
 }
 static void fail(DWORD code)
 {
@@ -29,8 +35,7 @@ void WINAPI app_entry(void)
     if(!params||!(params->Flags&PROCESS_PARAMS_FLAG_NORMALIZED))fail(71);
     if(!GetModuleFileNameW(NULL,image,ARRAY_SIZE(image))||
        !same(image,params->ImagePathName.Buffer))fail(72);
-    if(!same(GetCommandLineW(),params->CommandLine.Buffer)||
-       !contains(GetCommandLineW(),L" arg-\x03a9-\xd83d\xde00 \"\" \"two words\" \"quote\\\"inside\" \"space slash\\\\\""))fail(73);
+    if(!same(GetCommandLineW(),params->CommandLine.Buffer)||!arguments_match())fail(73);
     if(!GetEnvironmentVariableW(L"WINE_PROCESS_PARAMS_TEST",environment,ARRAY_SIZE(environment))||
        !same(environment,L"params-\x03a9-\xd83d\xde00"))fail(74);
     if(!params->Environment||!params->EnvironmentSize)fail(75);

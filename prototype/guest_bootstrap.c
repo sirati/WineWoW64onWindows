@@ -66,6 +66,9 @@ __declspec(dllexport) void WINAPI ProbeInitLoader(HMODULE ntdll)
     peb->FastPebLock=(void *)(wine_ntdll+WINE_NTDLL_peb_lock);
     *(WCHAR **)(wine_ntdll+WINE_NTDLL_default_load_path)=peb->ProcessParameters->DllPath.Buffer;
     *(BOOL *)(wine_ntdll+WINE_NTDLL_imports_fixup_done)=TRUE;
+    /* No Wine prefix supplies placeholder DLL files on the native host.
+     * Keep Wine's own WINEDLLDIRn/build-directory fallback available. */
+    *(BOOL *)(wine_ntdll+WINE_NTDLL_is_prefix_bootstrap)=TRUE;
     UINT count=*(UINT *)(wine_ntdll+WINE_NTDLL_tls_module_count);
     *(void **)(wine_ntdll+WINE_NTDLL_tls_dirs)=RtlAllocateHeap(peb->ProcessHeap,HEAP_ZERO_MEMORY,count*sizeof(IMAGE_TLS_DIRECTORY));
 }

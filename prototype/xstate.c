@@ -37,6 +37,8 @@ void probe_xstate_init(void)
 }
 void probe_cpu_prepare(struct guest_cpu *cpu)
 {
+    /* Wine can query a suspended child's context before its first entry. */
+    ((WOW64_CPURESERVED *)cpu)->Machine=IMAGE_FILE_MACHINE_I386;
     cpu->xsave_ptr=(uintptr_t)&cpu->frame.xsave;
     if(cpu->frame.initialized)return;
     memset(&cpu->frame,0,sizeof(cpu->frame));

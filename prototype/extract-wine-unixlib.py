@@ -81,6 +81,8 @@ cache = replace_once(cache, 'wow ? "__wine_unix_call_wow64_funcs" : "__wine_unix
                      '"__wine_unix_call_wow64_funcs"')
 Path('prototype/out/wine-unixlib-cache.inc').write_text(cache + '\n')
 Path('prototype/out/wine-unixlib-paths.inc').write_text('\n\n'.join(parts) + '\n')
+environment = (root / 'env.c').read_text()
+Path('prototype/out/wine-native-dos-path.inc').write_text(function(environment, 'get_dos_path') + '\n')
 debug = (root / 'debug.c').read_text()
 Path('prototype/out/wine-debug-options.inc').write_text('\n\n'.join(
     function(debug, name) for name in ('add_option', 'parse_options')) + '\n')

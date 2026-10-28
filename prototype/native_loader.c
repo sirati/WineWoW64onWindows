@@ -24,6 +24,7 @@ typedef int sigset_t;
 #define RTLD_NOW 0
 #define WARN_(channel) WARN
 #define WARN(...) do {} while(0)
+#include "out/wine-native-dos-path.inc"
 
 static WCHAR *wide_path(const char *path)
 {
@@ -31,9 +32,11 @@ static WCHAR *wide_path(const char *path)
     WCHAR *result=count?malloc(count*sizeof(WCHAR)):NULL;
     if(result)MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path,-1,result,count);
     if(result)for(WCHAR *p=result;*p;p++)if(*p==L'/')*p=L'\\';
-    DWORD needed=result?GetFullPathNameW(result,0,NULL,NULL):0;
+    WCHAR *dos=result;
+    if(result&&!wcsncmp(result,L"\\??\\",4))dos=get_dos_path(result);
+    DWORD needed=dos?GetFullPathNameW(dos,0,NULL,NULL):0;
     WCHAR *absolute=needed?malloc(needed*sizeof(WCHAR)):NULL;
-    if(absolute&&(!GetFullPathNameW(result,needed,absolute,NULL)))
+    if(absolute&&(!GetFullPathNameW(dos,needed,absolute,NULL)))
     {free(absolute);absolute=NULL;}
     free(result);return absolute;
 }
@@ -75,6 +78,14 @@ static char *environment_path(const WCHAR *name)
     if(value&&GetEnvironmentVariableW(name,value,count)<count)result=utf8_path(value);
     free(value);return result;
 }
+static void publish_dll_directory(const WCHAR *variable,const char *path)
+{
+    WCHAR *directory=wide_path(path);
+    UNICODE_STRING nt_directory;
+    if(!directory||RtlDosPathNameToNtPathName_U_WithStatus(directory,&nt_directory,NULL,NULL))ExitProcess(94);
+    if(!SetEnvironmentVariableW(variable,nt_directory.Buffer))ExitProcess(94);
+    RtlFreeUnicodeString(&nt_directory);free(directory);
+}
 void probe_loader_init(void)
 {
     WCHAR *path=runtime_directory;
@@ -89,6 +100,20 @@ void probe_loader_init(void)
     if(!dll_dir)ExitProcess(94);
     InitializeCriticalSection(&virtual_mutex);
     set_dll_path();
+    /* Wine's PE fallback finder consumes WINEDLLDIRn, which its Unix loader
+     * normally publishes from this same dll_paths array.  There is no prefix
+     * containing placeholder DLLs on this native host, so use Wine's original
+     * prefix-bootstrap search for missing logical system DLL files. */
+    unsigned i;
+    for(i=0;dll_paths[i];i++)
+    {
+        WCHAR variable[32];
+        swprintf(variable,ARRAY_SIZE(variable),L"WINEDLLDIR%u",i);
+        publish_dll_directory(variable,dll_paths[i]);
+    }
+    WCHAR variable[32];swprintf(variable,ARRAY_SIZE(variable),L"WINEDLLDIR%u",i);
+    SetEnvironmentVariableW(variable,NULL);
+    if(build_dir)publish_dll_directory(L"WINEBUILDDIR",build_dir);
 }
 BOOL probe_runtime_path(WCHAR *path,SIZE_T capacity,const WCHAR *relative)
 {

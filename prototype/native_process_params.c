@@ -39,7 +39,14 @@ RTL_USER_PROCESS_PARAMETERS32 *probe_initial_process_parameters(const WCHAR *ima
     if(child)
     {
         if(!child->DllPath.Length)RtlInitUnicodeString(&child->DllPath,dllpath);
+        /* CreateProcess received this guest environment.  The native loader
+         * has now refreshed Wine's per-process DLL directory variables. */
+        WCHAR *environment=GetEnvironmentStringsW();
+        if(!environment){VirtualFree(child,0,MEM_RELEASE);return NULL;}
+        const WCHAR *end=environment;while(*end)end+=wcslen(end)+1;
+        child->Environment=environment;child->EnvironmentSize=(end-environment+1)*sizeof(WCHAR);
         RTL_USER_PROCESS_PARAMETERS32 *result=build_wow64_parameters(child);
+        FreeEnvironmentStringsW(environment);
         HANDLE directory=CreateFileW(child->CurrentDirectory.DosPath.Buffer,FILE_TRAVERSE|SYNCHRONIZE,
             FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,NULL,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS,NULL);
         if(directory==INVALID_HANDLE_VALUE){VirtualFree(result,0,MEM_RELEASE);return NULL;}

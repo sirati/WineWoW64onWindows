@@ -73,7 +73,6 @@ DWORD WINAPI probe_run32(I386_CONTEXT *ctx)
     probe_thread_enter(cpu,&previous_registered);
     TlsSetValue(guest_teb_slot,(void *)cpu->guest_fs_base);
     TlsSetValue(guest_cpu_slot,cpu);
-    ((WOW64_CPURESERVED *)cpu)->Machine=IMAGE_FILE_MACHINE_I386;
     extern DWORD WINAPI probe_enter32_state(I386_CONTEXT *,void *);
     DWORD result=probe_enter32_state(ctx,native_state);
     TlsSetValue(guest_teb_slot,previous);
