@@ -316,6 +316,10 @@ NTSTATUS WINAPI probe_NtSetInformationThread(HANDLE handle,THREADINFOCLASS type,
     if(type==ThreadBasePriority&&size==sizeof(LONG)&&info)
     {
         LONG priority=*(LONG *)info;
+        /* Wine's server rejects realtime-band priorities without the
+         * SeIncreaseBasePriorityPrivilege. Native Windows accepts the same
+         * request for this host token, so preserve the x86 contract here. */
+        if(priority>=24)return STATUS_PRIVILEGE_NOT_HELD;
         if(priority==THREAD_PRIORITY_TIME_CRITICAL)++priority;
         else if(priority==THREAD_PRIORITY_IDLE)--priority;
         return NtSetInformationThread(handle,type,&priority,sizeof(priority));

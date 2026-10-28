@@ -60,6 +60,20 @@ try {
     Copy-Item -LiteralPath $app -Destination $buildApp
     Copy-Item -LiteralPath "$echo/i386-windows/wine_unixlib_echo.dll" -Destination $buildApp
     $buildArguments='--wine-components "'+(Join-Path $buildApp 'wine-unixlib-echo-app.exe')+'"'
+    # The no-unixlib runtime is a reduced copy used only for the negative
+    # controls.  It still runs Wine's x86 loader, which requires the Wine
+    # API-set schema before it can create even the hello process.  Keep that
+    # loader input identical to the normal runtime while leaving the generic
+    # native-unixlib probe disabled.
+    $apiSet=Join-Path $runtime 'stock-wine/apisetschema.dll'
+    $negativeApiSet=Join-Path $negative 'stock-wine/apisetschema.dll'
+    if(-not (Test-Path -LiteralPath $apiSet)){throw "Normal runtime is missing $apiSet"}
+    if(-not (Test-Path -LiteralPath $negativeApiSet)){
+        New-Item -ItemType Directory -Force (Split-Path -Parent $negativeApiSet)|Out-Null
+        Copy-Item -LiteralPath $apiSet -Destination $negativeApiSet
+    }
+    if((Get-FileHash -Algorithm SHA256 -LiteralPath $negativeApiSet).Hash -ne
+       (Get-FileHash -Algorithm SHA256 -LiteralPath $apiSet).Hash){throw 'Negative runtime API-set schema changed'}
     Invoke-Control 'negative-hello' "$negative/wine-host.exe" '--wine-components guest/hello32.exe' $negative '' 0 '(?m)^hello32: stdout, process ID, 64-bit DLL call, memory and sleep passed\r?$' $true
     # The control runtime uses the candidate's platform fixes, with generic
     # unixlib lookup disabled at build time. Its manifest identifies that
@@ -78,7 +92,15 @@ try {
         Invoke-Control "build-$i" "$runtime/wine-host.exe" $arguments $runtime '' 0 '(?m)^ECHO_OK calls=20\r?$' $true $build
         Invoke-Control "build-native-$i" "$runtime/wine-host.exe" $buildArguments $runtime '' 0 '(?m)^ECHO_OK calls=20\r?$' $true $build
     }
-    Invoke-Control 'missing-native' "$runtime/wine-host.exe" $arguments $runtime "$split/pe" 2 '(?m)^ECHO_FAILED load status=0xc0000135\r?$' $false
+    # The fixture also carries a top-level builtin copy for the normal
+    # WINEDLLPATH search.  Keep that copy out of this control so the builtin
+    # is found through i386-windows while its sibling native unixlib is truly
+    # absent.
+    $missing=Join-Path $results 'missing-native'
+    New-Item -ItemType Directory -Force $missing|Out-Null
+    Copy-Item -LiteralPath $app -Destination (Join-Path $missing 'wine-unixlib-echo-app.exe') -Force
+    $missingArguments='--wine-components "'+(Join-Path $missing 'wine-unixlib-echo-app.exe')+'"'
+    Invoke-Control 'missing-native' "$runtime/wine-host.exe" $missingArguments $runtime "$split/pe" 2 '(?m)^ECHO_FAILED load status=0xc0000135\r?$' $false
     $runtimeNativeDirectory=Join-Path $runtime 'x86_64-native'
     $createdNativeDirectory=-not (Test-Path -LiteralPath $runtimeNativeDirectory)
     $runtimeNative=Join-Path $runtimeNativeDirectory 'wine_unixlib_echo.dll'

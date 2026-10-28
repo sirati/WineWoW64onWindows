@@ -40,6 +40,8 @@ struct guest_module { const char *name; BYTE *base; IMAGE_NT_HEADERS32 *nt; WCHA
 static struct guest_module mods[128];
 static char mod_names[128][260];
 static unsigned nmods;
+static SECTION_IMAGE_INFORMATION guest_image_info;
+static BOOL guest_image_info_valid;
 static void *early_image_reservation;
 extern void mainCRTStartup(void);
 /* Keep the usual legacy EXE address available before the host CRT allocates
@@ -55,6 +57,28 @@ extern TEB32 *probe_current_teb32(void);
 static DWORD native_callback_slot=FLS_OUT_OF_INDEXES;
 static DWORD callback_on_native_thread(DWORD,const DWORD *,UINT);
 static void WINAPI external_guest_thread_end(void *);
+static void set_guest_image_info(const struct guest_module *app)
+{
+    const IMAGE_OPTIONAL_HEADER32 *optional=&app->nt->OptionalHeader;
+    memset(&guest_image_info,0,sizeof(guest_image_info));
+    guest_image_info.TransferAddress=app->base+optional->AddressOfEntryPoint;
+    guest_image_info.MaximumStackSize=optional->SizeOfStackReserve;
+    guest_image_info.CommittedStackSize=optional->SizeOfStackCommit;
+    guest_image_info.SubSystemType=optional->Subsystem;
+    guest_image_info.MinorSubsystemVersion=optional->MinorSubsystemVersion;
+    guest_image_info.MajorSubsystemVersion=optional->MajorSubsystemVersion;
+    guest_image_info.MajorOperatingSystemVersion=optional->MajorOperatingSystemVersion;
+    guest_image_info.MinorOperatingSystemVersion=optional->MinorOperatingSystemVersion;
+    guest_image_info.ImageCharacteristics=app->nt->FileHeader.Characteristics;
+    guest_image_info.DllCharacteristics=optional->DllCharacteristics;
+    guest_image_info.Machine=app->nt->FileHeader.Machine;
+    guest_image_info.ImageContainsCode=TRUE;
+    guest_image_info.ImageFlags=0;
+    guest_image_info.LoaderFlags=optional->LoaderFlags;
+    guest_image_info.ImageFileSize=optional->SizeOfImage;
+    guest_image_info.CheckSum=optional->CheckSum;
+    guest_image_info_valid=TRUE;
+}
 DWORD WINAPI probe_callback32(DWORD function,const DWORD *args,UINT count)
 {
     struct guest_cpu *parent=probe_current_cpu();
@@ -135,6 +159,15 @@ NTSTATUS WINAPI probe_NtQueryInformationProcess(HANDLE process,PROCESSINFOCLASS 
             if(type==ProcessWow64Information)*(ULONG_PTR *)info=peb;
             else ((PROCESS_BASIC_INFORMATION *)info)->PebBaseAddress=(PEB *)(peb-0x1000);
         }
+    }
+    /* This native process is the x64 host, but the query crosses the WoW64
+     * boundary and must describe the loaded x86 guest image. */
+    if(!status&&guest_image_info_valid&&type==ProcessImageInformation&&
+       (process==GetCurrentProcess()||GetProcessId(process)==GetCurrentProcessId())&&
+       size>=sizeof(guest_image_info))
+    {
+        memcpy(info,&guest_image_info,sizeof(guest_image_info));
+        if(returned)*returned=sizeof(guest_image_info);
     }
     return status;
 }
@@ -1132,6 +1165,7 @@ int main(int argc,char **argv)
         WCHAR path[32768];
         if(!probe_host_application_path(1,path,ARRAY_SIZE(path)))fail("application absolute path");
         app=load_image(path,app_name);
+        set_guest_image_info(app);
     }
     init_guest_teb(app->base);
     extern void probe_debug_init(void *,const char *);
@@ -1203,6 +1237,7 @@ int main(int argc,char **argv)
         if(load_status)fail("Wine application mapping");
         app->base=(BYTE *)(uintptr_t)*application_base;
         app->nt=(void *)(app->base+((IMAGE_DOS_HEADER *)app->base)->e_lfanew);
+        set_guest_image_info(app);
         set_guest_address_limit(app->nt->FileHeader.Characteristics);
         VirtualFree(module_path,0,MEM_RELEASE);
         if((ULONG_PTR)app->base!=app->nt->OptionalHeader.ImageBase)
