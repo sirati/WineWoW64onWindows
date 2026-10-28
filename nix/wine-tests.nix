@@ -23,7 +23,7 @@ in runCommand "wine-11.0-upstream-x86-tests" {
   assert all(len(entry) == 3 and entry[:2] == ['@', 'extern'] for entry in entries)
   Path('testdll.def').write_text('EXPORTS\n' + "".join('  ' + entry[2] + ' DATA\n' for entry in entries))
   PY
-  "$compiler" -O2 -shared -nostdlib -I source/include \
+  "$compiler" -O2 -shared -nostdlib -DWIN32_LEAN_AND_MEAN -I source/include \
     source/dlls/ntdll/tests/testdll.c testdll.def \
     -Wl,--entry,_DllMain@12,--dynamicbase,--nxcompat,--no-insert-timestamp -o testdll.dll
   printf '"testdll.dll" "TESTDLL" "testdll.dll"\n' > ntdll-resource.rc

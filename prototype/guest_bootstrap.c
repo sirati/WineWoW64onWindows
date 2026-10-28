@@ -10,7 +10,6 @@
 /* LdrLoadDll deliberately leaves non-main EXEs unrelocated. Once the host
  * selects the mapped image as the PEB main image, use Wine's original main
  * image relocation algorithm, before import binding or loader callbacks. */
-static void *get_rva(void *module,DWORD offset) { return (BYTE *)module+offset; }
 static NTSTATUS WINAPI main_image_protect(HANDLE process,void **address,SIZE_T *size,
                                           ULONG protection,ULONG *previous)
 {
