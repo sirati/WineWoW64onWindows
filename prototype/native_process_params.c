@@ -9,9 +9,15 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "native_process.h"
 #define ERR(...) fprintf(stderr,__VA_ARGS__)
 #define limit_2g ((ULONG_PTR)0x80000000)
 #include "out/wine-process-params.inc"
+
+WCHAR *probe_build_host_command_line(WCHAR **arguments)
+{
+    return build_command_line(arguments);
+}
 
 BOOL probe_host_application_path(int argument,WCHAR *path,DWORD capacity)
 {
@@ -29,6 +35,18 @@ RTL_USER_PROCESS_PARAMETERS32 *probe_initial_process_parameters(const WCHAR *ima
                                                                int first_argument,
                                                                const WCHAR *dllpath)
 {
+    RTL_USER_PROCESS_PARAMETERS *child=probe_child_parameters();
+    if(child)
+    {
+        if(!child->DllPath.Length)RtlInitUnicodeString(&child->DllPath,dllpath);
+        RTL_USER_PROCESS_PARAMETERS32 *result=build_wow64_parameters(child);
+        HANDLE directory=CreateFileW(child->CurrentDirectory.DosPath.Buffer,FILE_TRAVERSE|SYNCHRONIZE,
+            FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,NULL,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS,NULL);
+        if(directory==INVALID_HANDLE_VALUE){VirtualFree(result,0,MEM_RELEASE);return NULL;}
+        result->CurrentDirectory.Handle=HandleToUlong(directory);
+        VirtualFree(child,0,MEM_RELEASE);
+        return result;
+    }
     int count;
     WCHAR **host_argv=CommandLineToArgvW(GetCommandLineW(),&count);
     if(!host_argv)return NULL;

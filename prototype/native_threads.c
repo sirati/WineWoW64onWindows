@@ -6,6 +6,7 @@
 #include <winternl.h>
 #include "cpu_host.h"
 #include "native_threads.h"
+#include "native_process.h"
 struct guest_thread {
     LIST_ENTRY entry;
     LONG refs;
@@ -213,6 +214,12 @@ NTSTATUS WINAPI probe_NtQueryInformationThread(HANDLE handle,THREADINFOCLASS typ
                 ((THREAD_BASIC_INFORMATION *)info)->TebBaseAddress=(TEB *)((BYTE *)thread->teb-0x2000);
             }
             probe_thread_release(thread);
+        }
+        else if(type==ThreadBasicInformation)
+        {
+            ULONG_PTR teb;
+            if(probe_remote_guest_thread(handle,NULL,&teb,NULL))
+                ((THREAD_BASIC_INFORMATION *)info)->TebBaseAddress=(TEB *)(teb-0x2000);
         }
     }
     return status;

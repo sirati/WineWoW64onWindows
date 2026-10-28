@@ -102,6 +102,12 @@ done
   -Wl,--entry,_DllMain@12,--kill-at -o prototype/out/guest/dynamic_tls_library32.dll
 "$cc32" "${guest_flags[@]}" -shared prototype/process_exit_library32.c -lkernel32 \
   -Wl,--entry,_DllMain@12,--kill-at -o prototype/out/guest/process_exit_library32.dll
+"$cc32" "${guest_flags[@]}" -shared prototype/process_start_library32.c -lkernel32 \
+  -Wl,--entry,_DllMain@12,--kill-at,--out-implib,prototype/out/libprocess-start.a \
+  -o prototype/out/guest/process_start_library32.dll
+"$cc32" "${guest_flags[@]}" "${flags[@]}" "${inc[@]}" prototype/process_create32.c \
+  prototype/out/libprocess-start.a -lkernel32 \
+  -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/process_create32.exe
 "$cc32" -O2 -nostdlib prototype/disk_loader32.c \
   "$($cc32 -print-file-name=crt2.o)" "$($cc32 -print-file-name=crtbegin.o)" \
   "${winlibs[@]}" "$($cc32 -print-file-name=crtend.o)" -o prototype/out/guest/disk_loader32.exe
@@ -166,6 +172,7 @@ for unit in file process registry security sync syscall system virtual; do
     extra+=( -DNtAlertMultipleThreadByThreadId=probe_NtAlertMultipleThreadByThreadId )
     extra+=( -DRtlWow64GetThreadSelectorEntry=probe_RtlWow64GetThreadSelectorEntry )
     extra+=( -DNtQueryInformationProcess=probe_NtQueryInformationProcess )
+    extra+=( -DNtCreateUserProcess=probe_NtCreateUserProcess )
     extra+=( -DNtSetInformationProcess=probe_NtSetInformationProcess -DNtQueueApcThread=probe_NtQueueApcThread -DNtCreateThreadEx=probe_NtCreateThreadEx -DNtTerminateThread=probe_NtTerminateThread -DNtQueryInformationThread=probe_NtQueryInformationThread -DNtSetInformationThread=probe_NtSetInformationThread -DNtGetNextThread=probe_NtGetNextThread )
   fi
   if [[ "$unit" == system ]]; then extra+=( -DNtQuerySystemInformation=probe_NtQuerySystemInformation );fi
@@ -180,7 +187,7 @@ done
 for host_variant in normal no-unixlib;do
 host_flags=();host_name=wine-host
 if [[ "$host_variant" == no-unixlib ]];then host_flags+=( -DPROBE_TEST_NO_NATIVE_UNIXLIB );host_name=wine-host-no-unixlib;fi
-"$cc64" "${flags[@]}" "${host_flags[@]}" "${inc[@]}" prototype/host.c prototype/backend.c prototype/wine_cpu_adapter.c prototype/wine_exceptions.c prototype/wine_extended_context.c prototype/xstate.c prototype/native_io.c prototype/native_sockets.c prototype/native_socket_io.c prototype/native_threads.c prototype/native_loader.c prototype/native_debug.c prototype/native_process_params.c \
+"$cc64" "${flags[@]}" "${host_flags[@]}" "${inc[@]}" prototype/host.c prototype/backend.c prototype/wine_cpu_adapter.c prototype/wine_exceptions.c prototype/wine_extended_context.c prototype/xstate.c prototype/native_io.c prototype/native_sockets.c prototype/native_socket_io.c prototype/native_threads.c prototype/native_loader.c prototype/native_debug.c prototype/native_process_params.c prototype/native_process.c \
   prototype/out/wine-file.o prototype/out/wine-process.o prototype/out/wine-sync.o prototype/out/wine-virtual.o \
   prototype/out/wine-registry.o \
   prototype/out/wine-system.o prototype/out/wine-security.o \

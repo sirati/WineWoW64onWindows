@@ -10,6 +10,7 @@
 #include "native_threads.h"
 #include "native_loader.h"
 #include "native_io.h"
+#include "native_process.h"
 #include "out/wine-ntdll-symbols.h"
 extern DWORD WINAPI probe_run32(I386_CONTEXT *);
 extern void probe_exit64(void),syscall_32to64(void),unix_call_32to64(void);
@@ -122,6 +123,15 @@ NTSTATUS WINAPI probe_NtQueryInformationProcess(HANDLE process,PROCESSINFOCLASS 
         /* Wine's original thunk adds its fixed PEB32 offset. */
         else if(type==ProcessBasicInformation)
             ((PROCESS_BASIC_INFORMATION *)info)->PebBaseAddress=(PEB *)(guest_peb-0x1000);
+    }
+    else if(!status&&(type==ProcessWow64Information||type==ProcessBasicInformation))
+    {
+        ULONG_PTR peb;
+        if(probe_remote_guest_process(process,&peb,NULL,NULL))
+        {
+            if(type==ProcessWow64Information)*(ULONG_PTR *)info=peb;
+            else ((PROCESS_BASIC_INFORMATION *)info)->PebBaseAddress=(PEB *)(peb-0x1000);
+        }
     }
     return status;
 }
@@ -981,6 +991,7 @@ int main(int argc,char **argv)
     struct guest_cpu cpu={0};
     _Static_assert(offsetof(typeof(cpu),ctx)==4,"Wine context layout");
     setvbuf(stdout,0,_IONBF,0);setvbuf(stderr,0,_IONBF,0);
+    if(!probe_child_bootstrap_init())fail("Wine child startup transport");
     probe_trace=getenv("WINE_PROBE_TRACE")!=0;
     { MEMORY_BASIC_INFORMATION info={0};VirtualQuery((void *)0x400000,&info,sizeof(info));
       printf("EARLY_IMAGE reservation=%p owner=%p region=%p size=%llx state=%lx type=%lx\n",early_image_reservation,info.AllocationBase,info.BaseAddress,(unsigned long long)info.RegionSize,info.State,info.Type); }
@@ -1004,7 +1015,8 @@ int main(int argc,char **argv)
         HMODULE m=LoadLibraryA("stock/wow64cpu.dll");
         printf("STOCK_LOAD handle=%p error=%lu\n",m,GetLastError());return m?0:2;
     }
-    BOOL wine_components=(argc>1&&!strcmp(argv[1],"--wine-components"));
+    BOOL child_process=(argc>1&&!strcmp(argv[1],"--wine-child"));
+    BOOL wine_components=child_process||(argc>1&&!strcmp(argv[1],"--wine-components"));
     reserve_guest_address_boundaries();
     const char *app_arg=wine_components ? (argc>2?argv[2]:"guest/hello32.exe") : (argc>1?argv[1]:"guest/hello32.exe");
     static void *builtin_table[BRIDGE_COUNT];
@@ -1147,18 +1159,6 @@ int main(int argc,char **argv)
         printf("WINE_PROCESS_PARAMETERS status=%08lx\n",params_status);if(params_status)fail("Wine process parameters initialization");
         DWORD import_status=call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeFixupImports",0),&gate[2],NULL,0);
         printf("WINE_IMPORTS status=%08lx\n",import_status);if(import_status)fail("Wine application imports");
-        if(crt)
-        {
-            DWORD kb_initialized=call_guest_dllmain(kb,&gate[2]);
-            printf("WINE_KERNELBASE_ATTACH=%lu\n",kb_initialized);if(!kb_initialized)fail("Wine kernelbase initialization");
-            DWORD k32_initialized=call_guest_dllmain(k32,&gate[2]);
-            printf("WINE_KERNEL32_ATTACH=%lu\n",k32_initialized);if(!k32_initialized)fail("Wine kernel32 initialization");
-            DWORD initialized=call_guest_dllmain(crt,&gate[2]);
-            printf("WINE_CRT_ATTACH=%lu\n",initialized);
-            if(!initialized) fail("Wine CRT initialization");
-        }
-        DWORD attach_status=call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeAttachImports",0),&gate[2],NULL,0);
-        printf("WINE_ATTACH status=%08lx\n",attach_status);if(attach_status)fail("Wine application dependency attach");
         wine_thread_attach=guest_export(bootstrap,"ProbeInitThread",0);
         wine_thread_start=guest_export(nt,"RtlUserThreadStart",0);
         wine_initial_apcs=guest_export(bootstrap,"ProbeInitialApcs",0);
@@ -1179,6 +1179,32 @@ int main(int argc,char **argv)
     cpu.ctx.Eip=(DWORD)(uintptr_t)(app->base+app->nt->OptionalHeader.AddressOfEntryPoint);
     cpu.ctx.Esp=(DWORD)(uintptr_t)sp;cpu.ctx.SegCs=0x23;cpu.ctx.SegSs=ss;cpu.ctx.SegFs=guest_fs_sel;cpu.ctx.EFlags=0x202;
     main_guest_context=&cpu.ctx;
+    if(child_process)
+    {
+        probe_init_child_context(&cpu.ctx,app->base+app->nt->OptionalHeader.AddressOfEntryPoint,
+            guest_peb,(TEB32 *)guest_teb,(ULONG)(ULONG_PTR)wine_thread_start,cs32_sel,ss32_sel,guest_fs_sel);
+        probe_cpu_prepare(&cpu);
+        cpu.magic=PROBE_CPU_MAGIC;
+        struct guest_cpu *previous;
+        probe_thread_enter(&cpu,&previous);
+        NTSTATUS status=probe_publish_guest_process((PEB32 *)guest_peb,(TEB32 *)guest_teb,&cpu.ctx,NULL);
+        if(status){SetLastError(RtlNtStatusToDosError(status));fail("publish Wine child startup");}
+    }
+    if(wine_components)
+    {
+        if(crt)
+        {
+            DWORD kb_initialized=call_guest_dllmain(kb,&gate[2]);
+            printf("WINE_KERNELBASE_ATTACH=%lu\n",kb_initialized);if(!kb_initialized)fail("Wine kernelbase initialization");
+            DWORD k32_initialized=call_guest_dllmain(k32,&gate[2]);
+            printf("WINE_KERNEL32_ATTACH=%lu\n",k32_initialized);if(!k32_initialized)fail("Wine kernel32 initialization");
+            DWORD initialized=call_guest_dllmain(crt,&gate[2]);
+            printf("WINE_CRT_ATTACH=%lu\n",initialized);
+            if(!initialized) fail("Wine CRT initialization");
+        }
+        DWORD attach_status=call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeAttachImports",0),&gate[2],NULL,0);
+        printf("WINE_ATTACH status=%08lx\n",attach_status);if(attach_status)fail("Wine application dependency attach");
+    }
     DWORD result=probe_run32(&cpu.ctx);
     if(wine_process_exit_thread&&*wine_process_exit_thread&&*wine_process_exit_thread!=GetCurrentThreadId())Sleep(INFINITE);
     InterlockedExchange(&native_process_shutdown,1);

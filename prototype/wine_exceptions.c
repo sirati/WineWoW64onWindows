@@ -7,6 +7,7 @@
 #include <winternl.h>
 #include "cpu_host.h"
 #include "native_threads.h"
+#include "native_process.h"
 #include "../wine-11.0-source/dlls/wow64/wow64_private.h"
 #include "wine/debug.h"
 #include "wine/asm.h"
@@ -58,12 +59,67 @@ static typeof(((struct wine_thread_state *)0)->arch) *amd64_thread_data(void)
 #undef NtCurrentTeb
 #define NtCurrentTeb() wine_teb()
 #include "out/wine-self-context.inc"
+/* Use the same Wine context conversion for another host's initial thread.
+ * The native thread handle still enforces lifetime and context access rights. */
+static NTSTATUS remote_thread_context(HANDLE thread,HANDLE process,ULONG_PTR address,
+                                      I386_CONTEXT *context,BOOL set)
+{
+    struct guest_cpu cpu;
+    CONTEXT native={.ContextFlags=CONTEXT_ALL};
+    NTSTATUS status=NtGetContextThread(thread,&native);
+    if(status)return status;
+    status=NtReadVirtualMemory(process,(void *)(address-4),&cpu,sizeof(cpu),NULL);
+    if(status)return status;
+    if(cpu.magic!=PROBE_CPU_MAGIC)return STATUS_THREAD_NOT_IN_PROCESS;
+    if(native.SegCs==0x23)probe_capture_cpu_context(&cpu,&native);
+    struct guest_cpu *previous=TlsGetValue(target_slot);TlsSetValue(target_slot,&cpu);
+    status=set?set_thread_wow64_context(GetCurrentThread(),context,sizeof(*context)):
+               get_thread_wow64_context(GetCurrentThread(),context,sizeof(*context));
+    TlsSetValue(target_slot,previous);
+    if(!status&&set)
+    {
+        DWORD flags=context->ContextFlags&~CONTEXT_i386;
+        if(flags&0x20)cpu.frame.xstate.Mask|=3;
+        else if(flags&0x8)cpu.frame.xstate.Mask|=1;
+        cpu.flags|=WOW64_CPURESERVED_FLAG_RESET_STATE;
+        /* Preserve pointer values belonging to the remote process. */
+        status=NtWriteVirtualMemory(process,(void *)(address-4),&cpu,sizeof(cpu),NULL);
+        if(!status)
+        {
+            if(native.SegCs==0x23)
+            {
+                WORD cs;__asm__("movw %%cs,%0":"=r"(cs));
+                ULONG_PTR remote_resume;
+                /* Translate the resume routine's RVA to the child's native
+                 * host image, including when ASLR selected a different base. */
+                PROCESS_BASIC_INFORMATION basic;
+                PEB remote_peb;
+                status=NtQueryInformationProcess(process,ProcessBasicInformation,&basic,sizeof(basic),NULL);
+                if(!status)status=NtReadVirtualMemory(process,basic.PebBaseAddress,&remote_peb,sizeof(remote_peb),NULL);
+                if(!status)
+                {
+                    remote_resume=(ULONG_PTR)remote_peb.ImageBaseAddress+
+                        ((ULONG_PTR)probe_resume32-(ULONG_PTR)GetModuleHandleW(NULL));
+                    native.Rip=remote_resume;native.Rsp=native.R14;native.SegCs=cs;native.SegSs=ss32_sel;
+                }
+            }
+            if(!status)status=NtSetContextThread(thread,&native);
+        }
+    }
+    return status;
+}
 static NTSTATUS thread_context(HANDLE handle,I386_CONTEXT *context,BOOL set)
 {
     extern int probe_trace;
     struct guest_thread *thread=probe_thread_acquire(handle);
     if(!thread)
     {
+        HANDLE process;ULONG_PTR address;
+        if(probe_remote_guest_thread(handle,&process,NULL,&address))
+        {
+            NTSTATUS status=remote_thread_context(handle,process,address,context,set);
+            CloseHandle(process);return status;
+        }
         /* The guest record can be reaped while an exited thread's handle
          * remains valid. Let Windows validate its lifetime and access rights
          * without requesting or changing any native register state. */

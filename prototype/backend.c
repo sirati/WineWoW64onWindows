@@ -253,6 +253,7 @@ extern NTSTATUS WINAPI wow64_NtGetNextThread(UINT *),wow64_NtSetInformationThrea
 extern NTSTATUS WINAPI wow64_NtGetContextThread(UINT *),wow64_NtSetContextThread(UINT *);
 extern NTSTATUS WINAPI wow64_NtSuspendThread(UINT *),wow64_NtResumeThread(UINT *),wow64_NtOpenThread(UINT *);
 extern NTSTATUS WINAPI wow64_NtCreateThreadEx(UINT *),wow64_NtTerminateThread(UINT *);
+extern NTSTATUS WINAPI wow64_NtCreateUserProcess(UINT *);
 extern NTSTATUS WINAPI wow64_NtQueryObject(UINT *),wow64_NtSetInformationObject(UINT *);
 extern NTSTATUS WINAPI wow64_NtTestAlert(UINT *);
 extern NTSTATUS WINAPI wow64_NtOpenDirectoryObject(UINT *),wow64_NtCreateDirectoryObject(UINT *),wow64_NtQueryDirectoryObject(UINT *);
@@ -297,6 +298,7 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
     if(probe_trace&&n==0x27)diagnostic("SET_FILE handle=%x class=%u len=%u data=%08lx\n",a[0],a[4],a[3],*(DWORD *)(uintptr_t)a[2]);
     switch(n)
     {
+    case 0x0089: status=wow64_NtCreateUserProcess(a);break;
     case 0x007b: status=wow64_NtCreateKeyedEvent(a);break;
     case 0x00b3: status=wow64_NtOpenKeyedEvent(a);break;
     case 0x0101: status=wow64_NtWaitForKeyedEvent(a);break;

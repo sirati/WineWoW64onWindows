@@ -21,6 +21,7 @@ foreach($program in $Programs) {
             $timeout=-not $p.WaitForExit(15000)
             if($timeout){$p.Kill();$p.WaitForExit()}
             $pattern=switch($program){
+                'process_create32' { '(?m)^process_create32: child loading, suspended DLL attach, Unicode parameters, inherited handles and redirected output passed\r?$' }
                 'named_objects32' { '(?m)^named_objects32: session, Local mappings, events, semaphores and mutexes passed\r?$' }
                 'stack_growth32' { 'stack_growth32:.*guard pages.*successfully' }
                 'selector_identity32' { '(?m)^selector_identity32: current, duplicated and remote FS descriptors identify guest TEBs passed\r?$' }
@@ -35,6 +36,11 @@ foreach($program in $Programs) {
                 default { "$program`:.*passed" }
             }
             $modeMatches=$true
+            if($program -eq 'process_create32') {
+                $modeMatches=$out.Result -match '(?m)^phase=unsuspended-child\r?$' -and
+                             $out.Result -match '(?m)^phase=suspended-child\r?$' -and
+                             $out.Result -match '(?m)^completed.children=00000002\r?$'
+            }
             if($program -eq 'io_thread_exit32' -and $guestArguments -match '(^|\s)--spin($|\s)') {
                 $modeMatches=$out.Result -match 'spin-issuer mode:\s*00000001'
             }
