@@ -17,6 +17,7 @@
       continuation-diagnostic = pkgs.callPackage ./nix/continuation-diagnostic.nix { };
       shadow-stack-diagnostic = pkgs.callPackage ./nix/shadow-stack-diagnostic.nix { };
       wow64-policy-diagnostic = pkgs.callPackage ./nix/wow64-policy-diagnostic.nix { };
+      alignment-policy-diagnostic = pkgs.callPackage ./nix/alignment-diagnostic.nix { };
     };
     apps.${system}.default = {
       type = "app";
