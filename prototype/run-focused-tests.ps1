@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string[]]$Programs=@('thunk_fault32','thread_affinity32','process_view32','process_view_laa32','thread_priority32','selector_identity32','activation_context32','worker_process_exit32','threadpool_wait32','condition_wake32','tls_slots32','named_objects32','builtin_process32','memory_status32','xstate32','xstate_components32','thread_context32','thread_exit_context32','thread_delayed_context32','thread_create32','apc32','io_notify32','callback32','callback_worker32','fiber32','fiber_thread_exit32','fiber_overflow32','stack_growth32','stack_overflow32','io_thread_exit32'),
+    [string[]]$Programs=@('thunk_fault32','unixlib_fault32','thread_affinity32','process_view32','process_view_laa32','thread_priority32','selector_identity32','activation_context32','worker_process_exit32','threadpool_wait32','condition_wake32','tls_slots32','named_objects32','builtin_process32','memory_status32','xstate32','xstate_components32','thread_context32','thread_exit_context32','thread_delayed_context32','thread_create32','apc32','io_notify32','callback32','callback_worker32','fiber32','fiber_thread_exit32','fiber_overflow32','stack_growth32','stack_overflow32','io_thread_exit32'),
     [int]$Repeats=5,
     [string]$ReportName='focused-suites',
     [int]$TimeoutSeconds=180
@@ -20,7 +20,7 @@ foreach($program in $Programs) {
     Remove-Item -LiteralPath $fixtureReport -ErrorAction SilentlyContinue
     $runner=(Join-Path $root 'run-runtime-tests.ps1').Replace("'","''")
     $count=if($program -in @('thunk_fault32','thread_affinity32')){[Math]::Max(10,$Repeats)}else{$Repeats}
-    $body="`$ErrorActionPreference='Stop'; `$global:LASTEXITCODE=0; & '$runner' -Programs '$program' -Repeats $count -ReportName '$fixtureReportName' -WineOnlyPrograms @('callback32','callback_worker32','fs_recovery32','fiber_thread_exit32')"
+    $body="`$ErrorActionPreference='Stop'; `$global:LASTEXITCODE=0; & '$runner' -Programs '$program' -Repeats $count -ReportName '$fixtureReportName' -WineOnlyPrograms @('callback32','callback_worker32','fs_recovery32','fiber_thread_exit32','unixlib_fault32')"
     if($program -eq 'io_thread_exit32'){$body+=" -ProgramArguments @{'io_thread_exit32'='--spin'}"}
     $body+='; exit $LASTEXITCODE'
     $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($body))

@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string[]]$Programs=@('socket_dns32'),[int]$Repeats=1,[string[]]$WineOnlyPrograms=@('callback32','callback_worker32','fs_recovery32'),[hashtable]$ProgramArguments=@{},[string]$ReportName='runtime-integration-report',[switch]$StopOnFailure)
+param([string[]]$Programs=@('socket_dns32'),[int]$Repeats=1,[string[]]$WineOnlyPrograms=@('callback32','callback_worker32','fs_recovery32','unixlib_fault32'),[hashtable]$ProgramArguments=@{},[string]$ReportName='runtime-integration-report',[switch]$StopOnFailure)
 $ErrorActionPreference='Stop'
 Set-Location "$PSScriptRoot/out"
 $env:WINE_NATIVE_BRIDGE="native64.dll"
@@ -28,6 +28,7 @@ foreach($program in $Programs) {
             }
             $pattern=switch($program){
                 'builtin_process32' { '(?m)^builtin_process32: system command interpreter loads as x86, stays suspended and terminates cleanly passed\r?$' }
+                'unixlib_fault32' { '(?m)^unixlib_fault32: invalid tables return access-violation status and guest execution continues passed\r?$' }
                 'process_create32' { '(?m)^process_create32: child loading, suspended DLL attach, Unicode parameters, inherited handles and redirected output passed\r?$' }
                 'named_objects32' { '(?m)^named_objects32: session, Local mappings, events, semaphores and mutexes passed\r?$' }
                 'stack_growth32' { 'stack_growth32:.*guard pages.*successfully' }

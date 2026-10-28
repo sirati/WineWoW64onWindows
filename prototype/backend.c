@@ -459,10 +459,12 @@ typedef NTSTATUS (WINAPI *entry_t)(void *);
 extern BOOL probe_socket_unix_dispatch(ULONGLONG,ULONG,void *,NTSTATUS *);
 static uint64_t private_bridge_table;
 void probe_set_bridge_table(void *table) { private_bridge_table=(uintptr_t)table; }
-NTSTATUS WINAPI probe_library_dispatch(uint64_t handle,unsigned int n,void *a)
+struct library_call { uint64_t handle;unsigned int code;void *args; };
+static NTSTATUS WINAPI dispatch_library_call(UINT *opaque)
 {
+    const struct library_call *call=(void *)opaque;
+    uint64_t handle=call->handle;unsigned int n=call->code;void *a=call->args;
     NTSTATUS status;
-    InterlockedIncrement((LONG *)&probe_library_calls);
     if(handle==BRIDGE_NTDLL_UNIX_HANDLE)
     {
         status=STATUS_NOT_SUPPORTED;
@@ -481,6 +483,16 @@ NTSTATUS WINAPI probe_library_dispatch(uint64_t handle,unsigned int n,void *a)
     if(handle==private_bridge_table&&n>=BRIDGE_COUNT)return STATUS_INVALID_PARAMETER;
     status=((entry_t *)(uintptr_t)handle)[n](a);
 done:
+    return status;
+}
+NTSTATUS WINAPI probe_library_dispatch(uint64_t handle,unsigned int n,void *a)
+{
+    /* Wine's Unix dispatcher runs on its syscall stack; handle_syscall_fault
+     * returns native faults as status codes. Reuse Wine's existing Windows
+     * SEH dispatcher for that boundary, including the table access itself. */
+    struct library_call call={handle,n,a};
+    InterlockedIncrement((LONG *)&probe_library_calls);
+    NTSTATUS status=wow64_syscall((UINT *)&call,(ULONG_PTR)dispatch_library_call);
     __asm__ __volatile__("movw %%ss,%%ax; movw %%ax,%%ss":::"ax","memory");
     return status;
 }
