@@ -24,7 +24,7 @@ static DWORD WINAPI worker(void *unused)
 }
 void WINAPI app_entry(void)
 {
-    if(!LoadLibraryA("guest/process_exit_library32.dll"))ExitProcess(71);
+    if(!LoadLibraryA("process_exit_library32.dll"))ExitProcess(71);
     if(has_option("--main")){MESSAGE("mode=main\r\n");request_exit();}
     spin_mode=has_option("--spin");
     if(spin_mode){MESSAGE("mode=worker-spin\r\n");}else{MESSAGE("mode=worker\r\n");}
