@@ -11,6 +11,7 @@ let
     patches = [
       ../patches/0001-loader-request-execute-access.patch
       ../patches/0003-native-host-process-return.patch
+      ../patches/0004-shared-tick-multiplier.patch
     ];
     dontStrip = true; # Wine loader private symbols are resolved during the cross build.
   });

@@ -710,6 +710,11 @@ static struct guest_thread_job *allocate_guest_thread(DWORD entry,DWORD param,SI
     BYTE *teb=job->teb,*stack=job->stack;
     stack_bind(stack,(TEB32 *)teb);
     memcpy(teb,guest_teb,0x1000);
+    /* A new thread starts without the parent's current fiber or active
+     * activation frames. Wine initializes and switches its own fiber state. */
+    ((TEB32 *)teb)->Tib.FiberData=0;
+    ((TEB32 *)teb)->SameTebFlags=0;
+    memset(&((TEB32 *)teb)->ActivationContextStack,0,sizeof(((TEB32 *)teb)->ActivationContextStack));
     ((TEB32 *)teb)->Tib.ExceptionList=~0u;
     ((TEB32 *)teb)->StaticUnicodeString.Buffer=(DWORD)(uintptr_t)((TEB32 *)teb)->StaticUnicodeBuffer;
     ((TEB32 *)teb)->ActivationContextStackPointer=(DWORD)(uintptr_t)&((TEB32 *)teb)->ActivationContextStack;

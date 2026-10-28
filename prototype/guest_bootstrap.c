@@ -3,6 +3,7 @@
 #define WIN32_NO_STATUS
 #include <windows.h>
 #include <winternl.h>
+#include "../wine-11.0-source/dlls/ntdll/ntdll_misc.h"
 #include "out/wine-ntdll-symbols.h"
 #define TRACE(...) do {} while(0)
 #define TRACE_(channel) TRACE
@@ -48,6 +49,7 @@ __declspec(dllexport) void WINAPI ProbeInitRuntime(void)
     RtlInitializeBitMap(&tls_bitmap,peb->TlsBitmapBits,sizeof(peb->TlsBitmapBits)*8);
     RtlInitializeBitMap(&tls_expansion_bitmap,peb->TlsExpansionBitmapBits,sizeof(peb->TlsExpansionBitmapBits)*8);
     RtlSetBits(&tls_bitmap,0,1);
+    RtlSetBits(&tls_bitmap,NTDLL_TLS_ERRNO,1);
 }
 static BYTE *wine_ntdll;
 static LDR_DATA_TABLE_ENTRY *main_entry;

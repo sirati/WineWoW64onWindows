@@ -16,6 +16,18 @@ in runCommand "wine-11.0-upstream-x86-tests" {
   (cd source/dlls/kernel32/tests
    ${binutils}/bin/i686-w64-mingw32-windres -I ../../../include \
      -i resource.rc -O coff -o "$resource_output")
+  # Wine's test build embeds this DLL. Preserve its code and data exports.
+  python3 - <<'PY'
+  from pathlib import Path
+  entries = [line.split() for line in Path('source/dlls/ntdll/tests/testdll.spec').read_text().splitlines() if line.strip()]
+  assert all(len(entry) == 3 and entry[:2] == ['@', 'extern'] for entry in entries)
+  Path('testdll.def').write_text('EXPORTS\n' + "".join('  ' + entry[2] + ' DATA\n' for entry in entries))
+  PY
+  "$compiler" -O2 -shared -nostdlib -I source/include \
+    source/dlls/ntdll/tests/testdll.c testdll.def \
+    -Wl,--entry,_DllMain@12,--dynamicbase,--nxcompat,--no-insert-timestamp -o testdll.dll
+  printf '"testdll.dll" "TESTDLL" "testdll.dll"\n' > ntdll-resource.rc
+  ${binutils}/bin/i686-w64-mingw32-windres -i ntdll-resource.rc -O coff -o ntdll-res.o
   "$compiler" -O2 -D__USE_MINGW_ANSI_STDIO=0 -D__WINE_PE_BUILD -D__WINESRC__ -I source/include -include _mingw.h \
     -c source/dlls/winecrt0/debug.c -o debug.o
   # The standalone runner uses console declarations that each test source
@@ -39,6 +51,7 @@ in runCommand "wine-11.0-upstream-x86-tests" {
     name="''${test#*/}"
     resources=()
     if [ "$module" = kernel32 ]; then resources+=(kernel32-res.o); fi
+    if [ "$module" = ntdll ]; then resources+=(ntdll-res.o); fi
     "$compiler" -O2 -g -fno-builtin -D__USE_MINGW_ANSI_STDIO=0 -DSTANDALONE -D__WINE_PE_BUILD \
       -D__WINESRC__ -I source/include -iquote source/include/msvcrt \
       -include ./test-preinclude.h \
@@ -67,7 +80,8 @@ in runCommand "wine-11.0-upstream-x86-tests" {
       'helpers': [{'source': name,
                    'sourceSHA256': hashlib.sha256((pathlib.Path('source') / name).read_bytes()).hexdigest()}
                   for name in ('include/wine/test.h', 'dlls/winecrt0/debug.c',
-                               'dlls/kernel32/tests/resource.rc', 'dlls/kernel32/tests/wine_test.manifest')],
+                               'dlls/kernel32/tests/resource.rc', 'dlls/kernel32/tests/wine_test.manifest',
+                               'dlls/ntdll/tests/testdll.c', 'dlls/ntdll/tests/testdll.spec')],
       'tests': rows}, indent=2) + '\n')
   PY
 ''

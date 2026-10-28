@@ -231,7 +231,13 @@ BOOL probe_dispatch_guest_exception(EXCEPTION_POINTERS *p)
         { CONTEXT_EX *ex=(CONTEXT_EX *)(context+1);XSAVE_AREA_HEADER *xs=(void *)((BYTE *)ex+ex->XState.Offset);
           fprintf(stderr,"EXCEPTION_XSTATE length=%lu offset=%ld mask=%llx compact=%llx\n",ex->XState.Length,ex->XState.Offset,xs->Mask,xs->CompactionMask); }
     }
-    EXCEPTION_POINTERS stable={p->ExceptionRecord,saved};
+    /* Native Windows reports compatibility-mode debug traps with WX86
+     * status codes. Wine's guest dispatcher expects the x86 exception codes
+     * its Unix signal backend normally supplies. Keep the native record. */
+    EXCEPTION_RECORD record=*p->ExceptionRecord;
+    if(record.ExceptionCode==STATUS_WX86_SINGLE_STEP)record.ExceptionCode=STATUS_SINGLE_STEP;
+    else if(record.ExceptionCode==STATUS_WX86_BREAKPOINT)record.ExceptionCode=STATUS_BREAKPOINT;
+    EXCEPTION_POINTERS stable={&record,saved};
     Wow64PassExceptionToGuest(&stable);
     /* The Windows VEH context may point at a native CONTEXT_EX whose compact
      * area belongs to the interrupted x64 dispatcher. Wine has already copied

@@ -1,0 +1,49 @@
+Wine's Unix backend supplies millisecond ticks with a multiplier of 1 << 24.
+Windows supplies kernel ticks and a multiplier in the same shared structure.
+Honor the multiplier in both cases, retaining the stable high/low read and
+avoiding overflow in the intermediate product. No syscall or worker is needed.
+
+--- a/dlls/kernelbase/sync.c
++++ b/dlls/kernelbase/sync.c
+@@ -181,8 +181,7 @@
+  */
+ ULONG WINAPI DECLSPEC_HOTPATCH GetTickCount(void)
+ {
+-    /* note: we ignore TickCountMultiplier */
+-    return user_shared_data->TickCount.LowPart;
++    return GetTickCount64();
+ }
+ 
+ 
+@@ -199,8 +198,8 @@
+         low = user_shared_data->TickCount.LowPart;
+     }
+     while (high != user_shared_data->TickCount.High2Time);
+-    /* note: we ignore TickCountMultiplier */
+-    return (ULONGLONG)high << 32 | low;
++    return ((ULONGLONG)high * user_shared_data->TickCountMultiplier << 8)
++            + (((ULONGLONG)low * user_shared_data->TickCountMultiplier) >> 24);
+ }
+ 
+ 
+--- a/dlls/ntdll/time.c
++++ b/dlls/ntdll/time.c
+@@ -401,8 +401,16 @@
+  */
+ ULONG WINAPI DECLSPEC_HOTPATCH NtGetTickCount(void)
+ {
+-    /* note: we ignore TickCountMultiplier */
+-    return user_shared_data->TickCount.LowPart;
++    ULONG high, low;
++
++    do
++    {
++        high = user_shared_data->TickCount.High1Time;
++        low = user_shared_data->TickCount.LowPart;
++    }
++    while (high != user_shared_data->TickCount.High2Time);
++    return ((ULONGLONG)high * user_shared_data->TickCountMultiplier << 8)
++            + (((ULONGLONG)low * user_shared_data->TickCountMultiplier) >> 24);
+ }
+ 
+ /***********************************************************************
