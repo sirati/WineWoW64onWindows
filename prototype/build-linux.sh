@@ -77,7 +77,7 @@ python3 prototype/check-transition-image.py prototype/out/guest/transition32.dll
 guest_flags=(-O2 -D_WIN32_WINNT=0x0601 -ffreestanding -fno-stack-protector -nostdlib)
 "$cc32" "${guest_flags[@]}" prototype/hello32.c -lkernel32 prototype/out/libguest_kernel32.a \
   -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/hello32.exe
-for test in stress32 teb32 tls32 tls_slots32 threads32 files32 dynamic32 file_semantics32 heap32 memory_status32 return32 concurrent32 fs_recovery32 async_event32 pipe_control32 apc32 io_notify32 io_thread_exit32 thread_context32 thread_exit_context32 thread_delayed_context32 thread_create32 thread_priority32 thread_affinity32 thunk_fault32 xstate32 xstate_components32 fiber32 fiber_thread_exit32 wine_debug32 tick_count32 stack_growth32 mitigation32; do
+for test in stress32 teb32 tls32 tls_slots32 threads32 files32 dynamic32 file_semantics32 heap32 memory_status32 return32 concurrent32 fs_recovery32 async_event32 pipe_control32 apc32 io_notify32 io_thread_exit32 thread_context32 thread_exit_context32 thread_delayed_context32 thread_create32 thread_priority32 selector_identity32 activation_context32 thread_affinity32 thunk_fault32 xstate32 xstate_components32 fiber32 fiber_thread_exit32 wine_debug32 tick_count32 stack_growth32 mitigation32; do
   test_flags=();if [[ "$test" == xstate32 ]];then test_flags+=( -msse2 );fi
   "$cc32" "${guest_flags[@]}" "${test_flags[@]}" prototype/$test.c -lkernel32 prototype/out/libguest_kernel32.a \
     -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/$test.exe
@@ -156,13 +156,14 @@ for unit in file process registry security sync syscall system virtual; do
       -DpBTCpuNotifyUnmapViewOfSection=wine_wow64_pBTCpuNotifyUnmapViewOfSection)
   fi
   if [[ "$unit" == process ]]; then
+    extra+=( -DRtlWow64GetThreadSelectorEntry=probe_RtlWow64GetThreadSelectorEntry )
     extra+=( -DNtQueryInformationProcess=probe_NtQueryInformationProcess )
     extra+=( -DNtSetInformationProcess=probe_NtSetInformationProcess -DNtQueueApcThread=probe_NtQueueApcThread -DNtCreateThreadEx=probe_NtCreateThreadEx -DNtTerminateThread=probe_NtTerminateThread -DNtQueryInformationThread=probe_NtQueryInformationThread -DNtSetInformationThread=probe_NtSetInformationThread -DNtGetNextThread=probe_NtGetNextThread )
   fi
   if [[ "$unit" == system ]]; then extra+=( -DNtQuerySystemInformation=probe_NtQuerySystemInformation );fi
   if [[ "$unit" == sync ]]; then extra+=( -DNtWaitForSingleObject=probe_NtWaitForSingleObject -DNtWaitForMultipleObjects=probe_NtWaitForMultipleObjects -DNtDuplicateObject=probe_NtDuplicateObject );fi
   if [[ "$unit" == virtual ]]; then extra+=( -DNtFreeVirtualMemory=probe_NtFreeVirtualMemory -DNtGetNlsSectionPtr=probe_NtGetNlsSectionPtr -DNtInitializeNlsFiles=probe_NtInitializeNlsFiles -DNtQueryVirtualMemory=probe_NtQueryVirtualMemory );fi
-  if [[ "$unit" == file ]]; then extra+=( -DNtDeviceIoControlFile=probe_NtDeviceIoControlFile -DNtLockFile=probe_NtLockFile -DNtOpenFile=probe_NtOpenFile -DNtSetInformationFile=probe_NtSetInformationFile -DNtReadFile=probe_NtReadFile -DNtWriteFile=probe_NtWriteFile -DNtCancelIoFileEx=probe_NtCancelIoFileEx -DNtFsControlFile=probe_NtFsControlFile -DNtCreateNamedPipeFile=probe_NtCreateNamedPipeFile );fi
+  if [[ "$unit" == file ]]; then extra+=( -DNtDeviceIoControlFile=probe_NtDeviceIoControlFile -DNtLockFile=probe_NtLockFile -DNtOpenFile=probe_NtOpenFile -DNtQueryInformationFile=probe_NtQueryInformationFile -DNtSetInformationFile=probe_NtSetInformationFile -DNtReadFile=probe_NtReadFile -DNtWriteFile=probe_NtWriteFile -DNtCancelIoFileEx=probe_NtCancelIoFileEx -DNtFsControlFile=probe_NtFsControlFile -DNtCreateNamedPipeFile=probe_NtCreateNamedPipeFile );fi
   unit_source=prototype/out/wine-$unit.c
   if [[ "$unit" == syscall ]];then unit_source=wine-11.0-source/dlls/wow64/syscall.c;fi
   "$cc64" "${flags[@]}" "${extra[@]}" "${inc[@]}" -Iwine-11.0-source/dlls/wow64 \

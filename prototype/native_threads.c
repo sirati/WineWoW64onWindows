@@ -146,6 +146,30 @@ void probe_thread_unregister(void)
     if(!thread)return;
     TlsSetValue(thread_slot,NULL);probe_thread_remove(thread);
 }
+NTSTATUS WINAPI probe_RtlWow64GetThreadSelectorEntry(HANDLE handle,THREAD_DESCRIPTOR_INFORMATION *info,
+                                                    ULONG size,ULONG *returned)
+{
+    NTSTATUS status=RtlWow64GetThreadSelectorEntry(handle,info,size,returned);
+    if(!status)
+    {
+        struct guest_thread *thread=probe_thread_acquire(handle);
+        if(thread)
+        {
+            struct guest_cpu *cpu=probe_thread_cpu(thread);
+            /* Windows validates the selector and supplies its attributes.
+             * The guest FS base lives in our separately allocated Wine TEB. */
+            if(cpu&&((info->Selector^cpu->ctx.SegFs)&~3u)==0)
+            {
+                ULONG base=(ULONG)(ULONG_PTR)thread->teb;
+                info->Entry.BaseLow=base;info->Entry.HighWord.Bytes.BaseMid=base>>16;
+                info->Entry.HighWord.Bytes.BaseHi=base>>24;
+            }
+            probe_thread_release(thread);
+        }
+    }
+    return status;
+}
+NTSTATUS (WINAPI *__imp_probe_RtlWow64GetThreadSelectorEntry)(HANDLE,THREAD_DESCRIPTOR_INFORMATION *,ULONG,ULONG *)=probe_RtlWow64GetThreadSelectorEntry;
 NTSTATUS WINAPI probe_NtQueryInformationThread(HANDLE handle,THREADINFOCLASS type,void *info,ULONG size,ULONG *returned)
 {
     NTSTATUS status=NtQueryInformationThread(handle,type,info,size,returned);

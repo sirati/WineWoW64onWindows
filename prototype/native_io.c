@@ -15,6 +15,24 @@ static BOOL in_wow64_call(void) { return TRUE; }
 static void *wine_server_get_ptr(client_ptr_t p) { return (void *)(ULONG_PTR)p; }
 #include "out/wine-async-iosb.inc"
 
+NTSTATUS WINAPI probe_NtQueryInformationFile(HANDLE file,IO_STATUS_BLOCK *io,void *buffer,
+                                            ULONG size,FILE_INFORMATION_CLASS type)
+{
+    if(type!=FileEndOfFileInformation)return NtQueryInformationFile(file,io,buffer,size,type);
+    /* Wine's manifest reader queries this class, which native Windows
+     * exposes only for setting. Obtain the same stored length natively. */
+    if(size<sizeof(FILE_END_OF_FILE_INFORMATION))return STATUS_INFO_LENGTH_MISMATCH;
+    FILE_STANDARD_INFORMATION standard;
+    NTSTATUS status=NtQueryInformationFile(file,io,&standard,sizeof(standard),FileStandardInformation);
+    if(!status)
+    {
+        ((FILE_END_OF_FILE_INFORMATION *)buffer)->EndOfFile=standard.EndOfFile;
+        io->Information=sizeof(FILE_END_OF_FILE_INFORMATION);
+    }
+    return status;
+}
+NTSTATUS (WINAPI *__imp_probe_NtQueryInformationFile)(HANDLE,IO_STATUS_BLOCK *,void *,ULONG,FILE_INFORMATION_CLASS)=probe_NtQueryInformationFile;
+
 /* Do not retain a duplicate file handle here. Windows must see last-close
  * and issuing-thread exit so that it cancels outstanding native requests.
  * Aliases track the same file object; requests keep only this metadata alive. */

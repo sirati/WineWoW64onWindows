@@ -556,3 +556,36 @@ Host SHA256: A8965C4D6CC72D44C8512027FE88FDF87DA57D3ADB7EB3FC11FFBE79B8FA7CE3.
 Evidence: evidence/context-cleanup-cd243aa/vm-results/guest-results/.
 Archive SHA256: 901f72bf57f6bd9a2e8b792714f0f1ae7b23b861c7a8be8cd995f216420347b5.
 Reproducible primary audit: evidence/context-cleanup-cd243aa/audit-results.py.
+
+Selector and activation-context controls on cd243aa
+
+The primary audited twelve additional processes on the unchanged runtime.
+Both native fixtures pass. Five Wine selector runs each load the application,
+exit 78 and report five FS-base mismatches, covering the current thread,
+duplicated handles and a suspended remote worker. Native FS descriptors
+identify the same TEB as FS:0x18. Wine's native descriptor helper returns
+the host TEB base instead of the separately allocated guest TEB. CS/DS
+base-zero controls and invalid-selector rejection pass in both modes.
+
+Both native manifest controls pass readback, mapping and public activation.
+Five Wine runs pass byte readback, mapping and FileStandardInformation size
+queries, then fail both simple and dependent CreateActCtxW with error 87.
+Wine's original manifest reader uses FileEndOfFileInformation to obtain the
+length after mapping. Direct native x86 class-20 queries return
+STATUS_NOT_IMPLEMENTED; the port's forwarded native x64 queries return
+STATUS_INVALID_INFO_CLASS. Both leave IO_STATUS_BLOCK sentinels unchanged.
+The successful class-5 query supplies the same file length in a 24-byte
+FILE_STANDARD_INFORMATION. The EOF class is an interface difference needed
+by Wine's existing parser, not a missing XML parser or new NT service.
+
+The next candidate keeps native descriptor validation and attributes, then
+substitutes only the guest FS base for a registered guest thread. It maps
+Wine's EOF query to native FileStandardInformation and returns the eight-byte
+EOF value through Wine's original IO_STATUS_BLOCK conversion. Other file
+information classes retain their native path. Windows validation is pending.
+
+Evidence: evidence/supported-thread-cd243aa/vm-results/normalized/.
+Archive SHA256: 3de0a3a7f955d180a14b20068e083e51aaa4b1a6a0cf264d1aa3968a4c544fb3.
+Primary audit: evidence/supported-thread-cd243aa/primary-audit.json.
+The direct suite exits 1, no process times out, the 131-file manifest verifies
+before and after, and the VM is destroyed after evidence retrieval.
