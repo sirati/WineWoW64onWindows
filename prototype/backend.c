@@ -291,6 +291,8 @@ extern NTSTATUS WINAPI wow64_NtQuerySystemInformationEx(UINT *),wow64_NtConvertB
 extern NTSTATUS WINAPI wow64_NtWow64GetNativeSystemInformation(UINT *);
 extern NTSTATUS WINAPI wow64_NtOpenProcessToken(UINT *),wow64_NtOpenProcessTokenEx(UINT *);
 extern NTSTATUS WINAPI wow64_NtOpenThreadToken(UINT *),wow64_NtOpenThreadTokenEx(UINT *);
+extern NTSTATUS WINAPI wow64_NtDuplicateToken(UINT *);
+extern NTSTATUS WINAPI wow64_NtPowerInformation(UINT *),wow64_NtSetSystemInformation(UINT *);
 extern NTSTATUS WINAPI wow64_NtCreateKeyedEvent(UINT *);
 extern NTSTATUS WINAPI wow64_NtOpenKeyedEvent(UINT *);
 extern NTSTATUS WINAPI wow64_NtWaitForKeyedEvent(UINT *);
@@ -436,6 +438,9 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
     case 0x0030: status=wow64_NtOpenProcessTokenEx(a);break;
     case 0x0024: status=wow64_NtOpenThreadToken(a);break;
     case 0x002f: status=wow64_NtOpenThreadTokenEx(a);break;
+    case 0x0042: status=wow64_NtDuplicateToken(a);break;
+    case 0x005f: status=wow64_NtPowerInformation(a);break;
+    case 0x00ed: status=wow64_NtSetSystemInformation(a);break;
     case 0x005a: status=wow64_NtQuerySystemTime(a);break;
     case 0x0012: status=wow64_NtOpenKey(a);break;
     case 0x0013: status=wow64_NtEnumerateValueKey(a);break;
