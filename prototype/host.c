@@ -637,27 +637,63 @@ static void report_mitigations(void)
 }
 extern RTL_USER_PROCESS_PARAMETERS32 *probe_initial_process_parameters(const WCHAR *,int,const WCHAR *);
 extern BOOL probe_host_application_path(int,WCHAR *,DWORD);
+static API_SET_NAMESPACE *load_wine_apiset_map(void)
+{
+    WCHAR path[32768];
+    HANDLE file,section;
+    void *image=NULL;
+    SIZE_T size=0;
+    API_SET_NAMESPACE *map=NULL;
+    if(!probe_runtime_path(path,ARRAY_SIZE(path),L"stock-wine/apisetschema.dll"))return NULL;
+    file=CreateFileW(path,GENERIC_READ|GENERIC_EXECUTE,FILE_SHARE_READ|FILE_SHARE_DELETE,
+                     NULL,OPEN_EXISTING,0,NULL);
+    if(file==INVALID_HANDLE_VALUE)return NULL;
+    /* Wine's loader maps the schema as a plain read-only file section, so
+     * the section's raw offset below is meaningful. */
+    if(NtCreateSection(&section,SECTION_MAP_READ|SECTION_QUERY,NULL,NULL,PAGE_READONLY,SEC_COMMIT,file)<0)
+    {CloseHandle(file);return NULL;}
+    CloseHandle(file);
+    if(NtMapViewOfSection(section,GetCurrentProcess(),&image,0,0,NULL,&size,ViewUnmap,0,PAGE_READONLY)<0)
+    {NtClose(section);return NULL;}
+    NtClose(section);
+    IMAGE_DOS_HEADER *dos=image;
+    if(size<sizeof(*dos)||dos->e_magic!=IMAGE_DOS_SIGNATURE||dos->e_lfanew<0||
+       (SIZE_T)dos->e_lfanew>size-sizeof(IMAGE_NT_HEADERS32))goto done;
+    IMAGE_NT_HEADERS32 *nt=(void *)((BYTE *)image+dos->e_lfanew);
+    if(nt->Signature!=IMAGE_NT_SIGNATURE||nt->FileHeader.Machine!=IMAGE_FILE_MACHINE_I386)goto done;
+    IMAGE_SECTION_HEADER *sec=IMAGE_FIRST_SECTION(nt);
+    for(unsigned i=0;i<nt->FileHeader.NumberOfSections;i++,sec++)
+    {
+        if(memcmp(sec->Name,".apiset",8))continue;
+        if(sec->PointerToRawData>size||sec->Misc.VirtualSize>size-sec->PointerToRawData)break;
+        API_SET_NAMESPACE *source=(void *)((BYTE *)image+sec->PointerToRawData);
+        if(source->Version!=6||source->Size>sec->Misc.VirtualSize||source->Size>16*1024*1024)break;
+        map=low_alloc(0x3e000000,source->Size,PAGE_READWRITE);
+        if(map)memcpy(map,source,source->Size);
+        break;
+    }
+done:
+    if(image)NtUnmapViewOfSection(GetCurrentProcess(),image);
+    return map;
+}
 static void init_guest_process_params(struct guest_module *app,int first_argument)
 {
-    WCHAR dllpath[4096],stock[1024],cwd[1024];
+    WCHAR dllpath[4096],cwd[1024];
     if(!GetCurrentDirectoryW(ARRAY_SIZE(cwd),cwd))fail("current directory");
-    if(!probe_runtime_path(stock,ARRAY_SIZE(stock),L"stock-wine"))fail("Wine DLL directory");
     wcscpy(dllpath,app->path);WCHAR *end_path=wcsrchr(dllpath,L'\\');if(end_path)*end_path=0;
-    wcscat(dllpath,L";");wcscat(dllpath,stock);wcscat(dllpath,L";");wcscat(dllpath,cwd);
+    /* Keep Wine's logical system32 name in loader records. probe_NtOpenFile
+     * maps that name to the packaged stock-wine directory when opening the
+     * PE, matching Wine's known-DLL path and GetModuleFileName results. */
+    wcscat(dllpath,L";C:\\windows\\system32;");wcscat(dllpath,cwd);
     if(!probe_loader_append_paths(dllpath,ARRAY_SIZE(dllpath)))fail("Wine builtin search path");
     RTL_USER_PROCESS_PARAMETERS32 *params=probe_initial_process_parameters(app->path,first_argument,dllpath);
     if(!params)fail("guest process parameters");
     ((PEB32 *)guest_peb)->ProcessParameters=PtrToUlong(params);
-    /* API-set entries contain offsets, so the Windows namespace can be
-     * copied into guest-addressable memory and parsed by Wine unchanged. */
-    const API_SET_NAMESPACE *apiset=NtCurrentTeb()->Peb->ApiSetMap;
-    if(apiset&&apiset->Size&&apiset->Size<16*1024*1024)
-    {
-        void *copy=low_alloc(0x3e000000,apiset->Size,PAGE_READWRITE);
-        if(!copy)fail("API-set namespace allocation");
-        memcpy(copy,apiset,apiset->Size);
-        ((PEB32 *)guest_peb)->ApiSetMap=(DWORD)(uintptr_t)copy;
-    }
+    /* Wine's schema is the source for the x86 loader. The host Windows map
+     * describes native x64 contracts and omits Wine's extension contracts. */
+    API_SET_NAMESPACE *apiset=load_wine_apiset_map();
+    if(!apiset)fail("Wine API-set namespace");
+    ((PEB32 *)guest_peb)->ApiSetMap=(DWORD)(uintptr_t)apiset;
     for(unsigned i=0;i<3;i++)
     {
         SIZE_T size;void *table=NULL;
@@ -1154,7 +1190,7 @@ int main(int argc,char **argv)
             DWORD args[]={(DWORD)(uintptr_t)mods[i].base,(DWORD)(uintptr_t)module_path,mods[i].base==nt->base?1:mods[i].base==k32->base?2:&mods[i]==app?3:0};
             if(call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeRegisterModule",0),&gate[2],args,3))fail("Wine module registration");
         }
-        if(!probe_runtime_path(module_path,2048,L"stock-wine"))fail("Wine DLL directory");
+        wcscpy(module_path,L"C:\\windows\\system32");
         DWORD directory_args[]={(DWORD)(uintptr_t)module_path};
         if(call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeSetDllDirectory",0),&gate[2],directory_args,1))fail("Wine dynamic DLL directory");
         wcscpy(module_path,app->path);
