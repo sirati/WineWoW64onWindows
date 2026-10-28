@@ -208,7 +208,20 @@ static NTSTATUS WINAPI get_context(HANDLE thread,HANDLE process,void *unused,voi
      * must use that saved CPU area, just like its Unix signal backend. Public
      * guest NtGetContextThread calls still query the live native debug state. */
     if(thread==GetCurrentThread())
-        return get_thread_wow64_context(thread,context,sizeof(I386_CONTEXT));
+    {
+        I386_CONTEXT *guest=context;
+        NTSTATUS status=get_thread_wow64_context(thread,guest,sizeof(*guest));
+        /* Wine's selected current-thread copy core leaves debug registers
+         * to its server path. That path is replaced by our captured CPU
+         * area for an internal exception/APC frame, including Dr6. */
+        if(!status&&(guest->ContextFlags&CONTEXT_I386_DEBUG_REGISTERS))
+        {
+            const I386_CONTEXT *saved=&context_cpu()->ctx;
+            guest->Dr0=saved->Dr0;guest->Dr1=saved->Dr1;guest->Dr2=saved->Dr2;
+            guest->Dr3=saved->Dr3;guest->Dr6=saved->Dr6;guest->Dr7=saved->Dr7;
+        }
+        return status;
+    }
     return probe_RtlWow64GetThreadContext(thread,context);
 }
 static NTSTATUS WINAPI set_context(HANDLE thread,HANDLE process,void *unused,void *context)
@@ -325,7 +338,7 @@ BOOL probe_dispatch_guest_exception(EXCEPTION_POINTERS *p)
     }
     if(probe_trace)
     {
-        fprintf(stderr,"EXCEPTION_CONTEXT native_flags=%08lx guest_mask=%llx code=%08lx\n",context->ContextFlags,cpu->frame.xstate.Mask,p->ExceptionRecord->ExceptionCode);
+        fprintf(stderr,"EXCEPTION_CONTEXT native_flags=%08lx guest_mask=%llx code=%08lx dr0=%llx dr6=%llx guest_dr6=%08lx\n",context->ContextFlags,cpu->frame.xstate.Mask,p->ExceptionRecord->ExceptionCode,context->Dr0,context->Dr6,cpu->ctx.Dr6);
         if(context->ContextFlags&0x40)
         { CONTEXT_EX *ex=(CONTEXT_EX *)(context+1);XSAVE_AREA_HEADER *xs=(void *)((BYTE *)ex+ex->XState.Offset);
           fprintf(stderr,"EXCEPTION_XSTATE length=%lu offset=%ld mask=%llx compact=%llx\n",ex->XState.Length,ex->XState.Offset,xs->Mask,xs->CompactionMask); }
