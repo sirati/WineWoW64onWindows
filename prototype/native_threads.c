@@ -32,9 +32,19 @@ void probe_threads_init(void)
 }
 NTSTATUS WINAPI probe_NtAlertMultipleThreadByThreadId(HANDLE *threads,ULONG count,void *unknown1,void *unknown2)
 {
-    /* The target Windows exports this API independently of the MinGW import
-     * library version. Wine's original thunk owns the handle-array conversion. */
-    return native_alert_multiple?native_alert_multiple(threads,count,unknown1,unknown2):STATUS_NOT_IMPLEMENTED;
+    /* Wine owns the array conversion and the validate-then-alert algorithm.
+     * Older Windows kernels expose only the individual alert primitive. */
+    if(native_alert_multiple)return native_alert_multiple(threads,count,unknown1,unknown2);
+    for(ULONG i=0;i<count;i++)
+    {
+        HANDLE thread;CLIENT_ID id={0,threads[i]};OBJECT_ATTRIBUTES attributes;
+        InitializeObjectAttributes(&attributes,NULL,0,NULL,NULL);
+        NTSTATUS status=NtOpenThread(&thread,0,&attributes,&id);
+        if(status)return status;
+        NtClose(thread);
+    }
+    for(ULONG i=0;i<count;i++)NtAlertThreadByThreadId(threads[i]);
+    return STATUS_SUCCESS;
 }
 NTSTATUS (WINAPI *__imp_probe_NtAlertMultipleThreadByThreadId)(HANDLE *,ULONG,void *,void *)=probe_NtAlertMultipleThreadByThreadId;
 static BOOL same_thread(HANDLE a,HANDLE b)
