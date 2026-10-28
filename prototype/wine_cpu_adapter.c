@@ -26,6 +26,26 @@
 extern void probe_resume32(void);
 extern DWORD WINAPI probe_enter32(I386_CONTEXT *);
 extern void probe_check_process_exit(I386_CONTEXT *,DWORD);
+static void *native_exception_dispatcher __attribute__((used));
+extern void probe_exception_return(void);
+/* Wine's signal_x86_64.c init_handler clears live AC before entering C.
+ * On Windows, KiUserExceptionDispatcher can itself fault with AC set, before
+ * any VEH runs. Reserve the host's process instrumentation callback to apply
+ * that sequence before the native dispatcher, leaving its saved CONTEXT alone.
+ * All registers, the stack and the remaining flags are preserved; syscall,
+ * APC and native thread returns go directly to their original destination. */
+__ASM_GLOBAL_FUNC(probe_exception_return,
+    "pushfq\n\t"
+    "cmpq native_exception_dispatcher(%rip),%r10\n\tjne 1f\n\t"
+    "andl $~0x40000,(%rsp)\n\t"
+    "1:\n\tpopfq\n\tjmp *%r10")
+NTSTATUS probe_exception_boundary_init(void)
+{
+    PROCESS_INSTRUMENTATION_CALLBACK_INFORMATION info={0,0,probe_exception_return};
+    native_exception_dispatcher=(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"KiUserExceptionDispatcher");
+    if(!native_exception_dispatcher)return STATUS_PROCEDURE_NOT_FOUND;
+    return NtSetInformationProcess(GetCurrentProcess(),ProcessInstrumentationCallback,&info,sizeof(info));
+}
 static DWORD guest_teb_slot;
 static DWORD guest_cpu_slot;
 unsigned long probe_fs_repairs;

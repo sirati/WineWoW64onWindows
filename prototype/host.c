@@ -26,6 +26,7 @@ extern void probe_backend_init(void);
 extern NTSTATUS WINAPI probe_NtGetNlsSectionPtr(ULONG,ULONG,void *,void **,SIZE_T *);
 extern void probe_set_bop_code(void *);
 extern void probe_cpu_init(USHORT,USHORT,USHORT);
+extern NTSTATUS probe_exception_boundary_init(void);
 extern BOOL probe_recover_fs(EXCEPTION_POINTERS *);
 extern void probe_resume_guest_context(CONTEXT *);
 extern void probe_exception_init(void *,void *,WORD);
@@ -1000,6 +1001,8 @@ int main(int argc,char **argv)
     probe_backend_init();
     probe_loader_init();
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
+    NTSTATUS boundary=probe_exception_boundary_init();
+    if(boundary){SetLastError(RtlNtStatusToDosError(boundary));fail("native exception boundary");}
     AddVectoredExceptionHandler(1,probe_vectored_entry);
     IsWow64Process(GetCurrentProcess(),&wow);
     __asm__("movw %%cs,%0; movw %%ss,%1; movw %%fs,%2":"=r"(cs),"=r"(ss),"=r"(fs));
