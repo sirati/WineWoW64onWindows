@@ -25,6 +25,7 @@ foreach($program in $Programs) {
                 'selector_identity32' { '(?m)^selector_identity32: current, duplicated and remote FS descriptors identify guest TEBs passed\r?$' }
                 'activation_context32' { '(?m)^activation_context32: verified manifest files, mapping and simple/dependent activation contexts passed\r?$' }
                 'worker_process_exit32' { '(?m)^worker_process_exit32: requested process exit 37\r?$' }
+                'threadpool_wait32' { '(?m)^threadpool_wait32: pending/completed callback wait, work close and pool lifetime passed\r?$' }
                 'thread_delayed_context32' { '(?m)^thread_delayed_context32: normal and forced exit retain valid context-handle errors after cleanup passed\r?$' }
                 'fs_recovery32' { 'fs_recovery32:.*recovered and retried' }
                 'stack_overflow32' { 'stack_overflow32:.*repeated growth passed' }
@@ -44,6 +45,13 @@ foreach($program in $Programs) {
                 if(-not $native -and $guestArguments -notmatch '(^|\s)--main($|\s)') {
                     $modeMatches=$modeMatches -and $out.Result -match '(?m)^GUEST_EXIT code=37 process_shutdown=1 HOST_RETURNED\r?$'
                 }
+            }
+            if($program -eq 'threadpool_wait32') {
+                $expectedMode=if($guestArguments -match '(^|\s)--finished($|\s)'){'finished'}else{'pending'}
+                $modeMatches=$out.Result -match "(?m)^mode=$expectedMode\r?$" -and
+                             $out.Result -match '(?m)^phase=before-work-wait\r?$' -and
+                             $out.Result -match '(?m)^phase=after-work-wait\r?$' -and
+                             $out.Result -notmatch 'watchdog.phase='
             }
             $loaderMatches=$native -or ($out.Result -match 'WINE_LOAD_APPLICATION status=00000000' -and
                                        $out.Result -match "GUEST_EXIT code=$expectedExit .*HOST_RETURNED")

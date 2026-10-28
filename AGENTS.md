@@ -1,7 +1,9 @@
 # Port constraints
 
 Keep application and DLL loading in Wine. Reuse Wine's algorithms and keep
-source changes small. GUI, ARM64 and additional guest NT services are excluded.
+source changes small. GUI and sound integration are excluded. The current
+goal includes additional guest NT services needed by non-GUI, non-audio tests.
+The runtime target remains x86 guests in an x64 Windows host.
 The repository records the pinned Nix cross build, patches, Windows adapters,
 test helpers and documentation. Generated Wine sources and binaries stay out
 of Git. Windows runs tests; Linux/Nix/MinGW builds the runtime and test inputs.
