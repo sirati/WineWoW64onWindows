@@ -35,6 +35,11 @@ in runCommand "wine-11.0-upstream-x86-tests" {
   # duplicate SDK definitions, matching Wine's usual header order.
   cat > test-preinclude.h <<'EOF'
   #include <_mingw.h>
+  /* Wine's quoted CRT headers use this import annotation; MinGW's corecrt
+   * spells the same declaration attribute _CRTIMP. */
+  #ifndef _ACRTIMP
+  #define _ACRTIMP _CRTIMP
+  #endif
   #include "ntstatus.h"
   #define WIN32_NO_STATUS
   #define WINE_NO_INLINE_STRING
