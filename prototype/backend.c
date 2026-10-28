@@ -268,6 +268,8 @@ extern NTSTATUS WINAPI wow64_NtCreateNamedPipeFile(UINT *);
 extern NTSTATUS WINAPI wow64_NtWaitForMultipleObjects(UINT *);
 extern NTSTATUS WINAPI wow64_NtDuplicateObject(UINT *);
 extern NTSTATUS WINAPI wow64_NtQueueApcThread(UINT *),wow64_NtQueueApcThreadEx2(UINT *);
+extern NTSTATUS WINAPI wow64_NtQueueApcThreadEx(UINT *),wow64_NtAlertResumeThread(UINT *);
+extern NTSTATUS WINAPI wow64_NtSuspendProcess(UINT *),wow64_NtResumeProcess(UINT *);
 extern NTSTATUS WINAPI wow64_NtCreateIoCompletion(UINT *),wow64_NtRemoveIoCompletion(UINT *),wow64_NtRemoveIoCompletionEx(UINT *);
 extern NTSTATUS WINAPI wow64_NtSetIoCompletion(UINT *),wow64_NtSetIoCompletionEx(UINT *);
 extern NTSTATUS WINAPI wow64_NtDeviceIoControlFile(UINT *);
@@ -342,6 +344,9 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
     case 0x00d2: status=wow64_NtReleaseKeyedEvent(a);break;
     case 0x002d: status=wow64_NtSetEventBoostPriority(a);break;
     case 0x0066: status=wow64_NtAlertThread(a);break;
+    case 0x0065: status=wow64_NtAlertResumeThread(a);break;
+    case 0x00f4: status=wow64_NtSuspendProcess(a);break;
+    case 0x00da: status=wow64_NtResumeProcess(a);break;
     case 0x0058: status=wow64_NtOpenDirectoryObject(a);break;
     case 0x0077: status=wow64_NtCreateDirectoryObject(a);break;
     case 0x00bc: status=wow64_NtQueryDirectoryObject(a);break;
@@ -408,6 +413,7 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
     case 0x003c: status=wow64_NtDuplicateObject(a);break;
     case 0x0045: status=wow64_NtQueueApcThread(a);break;
     case 0x00ce: status=wow64_NtQueueApcThreadEx2(a);break;
+    case 0x00cd: status=wow64_NtQueueApcThreadEx(a);break;
     case 0x0067: status=wow64_NtAlertThreadByThreadId(a);break;
     case 0x0064: status=wow64_NtAlertMultipleThreadByThreadId(a);break;
     case 0x00ff: status=wow64_NtWaitForAlertByThreadId(a);break;

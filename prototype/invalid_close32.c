@@ -20,7 +20,11 @@ void WINAPI app_entry(void)
     LONG status=close((HANDLE)0xdeadbeef);
     MESSAGE("invalid.close.status=");message_hex(status);
     MESSAGE("invalid.close.delivered=");message_hex(delivered);
-    if(status!=(LONG)0xc0000008||delivered!=(debugged?1:0))ExitProcess(73);
+    /* Native Windows can leave EAX zero after continuing its debugger
+     * exception. Wine's raise dispatcher returns STATUS_INVALID_HANDLE.
+     * The runner checks each platform's recorded status separately. */
+    if((status!=(LONG)0xc0000008&&!(debugged&&status==0&&delivered==1))||
+       delivered!=(debugged?1:0))ExitProcess(73);
     MESSAGE("phase=before-valid-close\r\n");
     for(unsigned i=0;i<8;i++)
     {
