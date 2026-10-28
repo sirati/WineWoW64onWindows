@@ -26,7 +26,7 @@ in runCommand "wine-11.0-upstream-x86-tests" {
   "$compiler" -O2 -shared -nostdlib -DWIN32_LEAN_AND_MEAN -I source/include \
     source/dlls/ntdll/tests/testdll.c testdll.def \
     -Wl,--entry,_DllMain@12,--dynamicbase,--nxcompat,--no-insert-timestamp -o testdll.dll
-  printf '"testdll.dll" "TESTDLL" "testdll.dll"\n' > ntdll-resource.rc
+  printf '"testdll.dll" TESTDLL "testdll.dll"\n' > ntdll-resource.rc
   ${binutils}/bin/i686-w64-mingw32-windres -i ntdll-resource.rc -O coff -o ntdll-res.o
   "$compiler" -O2 -D__USE_MINGW_ANSI_STDIO=0 -D__WINE_PE_BUILD -D__WINESRC__ -I source/include -include _mingw.h \
     -c source/dlls/winecrt0/debug.c -o debug.o
