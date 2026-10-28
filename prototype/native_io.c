@@ -40,8 +40,9 @@ struct file_state {
     LONG refs;
     HANDLE event,port;
     ULONG_PTR key;
-    ULONG flags;
+    ULONG flags,options;
 };
+#include "out/wine-file-overlapped.inc"
 struct file_alias { LIST_ENTRY entry;HANDLE handle;struct file_state *file; };
 static SRWLOCK files_lock=SRWLOCK_INIT;
 static LIST_ENTRY aliases={&aliases,&aliases};
@@ -96,7 +97,8 @@ static struct file_state *get_file(HANDLE handle,BOOL create)
             file=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(*file));
             if(file)
             {
-                file->refs=1;file->event=CreateEventW(NULL,TRUE,TRUE,NULL);
+                file->refs=1;file->options=mode.Mode;
+                file->event=CreateEventW(NULL,TRUE,TRUE,NULL);
                 if(!file->event){HeapFree(GetProcessHeap(),0,file);file=NULL;}
             }
         }
@@ -113,6 +115,10 @@ BOOL probe_io_set_information(HANDLE handle,IO_STATUS_BLOCK *io,void *info,ULONG
        type!=FileIoCompletionNotificationInformation)return FALSE;
     struct file_state *file=get_file(handle,TRUE);
     if(!file){*status=STATUS_INVALID_HANDLE;return TRUE;}
+    /* Wine's set_completion_info and set_fd_completion_mode server
+     * handlers both require the file to have been opened for overlapped I/O. */
+    if(!is_fd_overlapped(file))
+    { *status=STATUS_INVALID_PARAMETER;release_file(file);return TRUE; }
     *status=STATUS_SUCCESS;
     HANDLE port=NULL,old=NULL;
     if(type==FileIoCompletionNotificationInformation)

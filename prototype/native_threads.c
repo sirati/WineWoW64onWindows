@@ -122,7 +122,14 @@ void probe_thread_ready(void)
 NTSTATUS WINAPI probe_NtQueueApcThread(HANDLE handle,PNTAPCFUNC function,ULONG_PTR a,ULONG_PTR b,ULONG_PTR c)
 {
     struct guest_thread *thread=probe_thread_acquire(handle);
-    if(!thread)return NtQueueApcThread(handle,function,a,b,c);
+    if(!thread)
+    {
+        NTSTATUS status=NtQueueApcThread(handle,function,a,b,c);
+        /* Wine's queue_apc server handler returns STATUS_UNSUCCESSFUL when
+         * an exited thread cannot accept the request. Native x64 Windows
+         * uses STATUS_THREAD_IS_TERMINATING for the same condition. */
+        return status==STATUS_THREAD_IS_TERMINATING?STATUS_UNSUCCESSFUL:status;
+    }
     /* Serialize the initial queue drain with new requests to preserve FIFO. */
     AcquireSRWLockExclusive(&thread->apc_lock);
     NTSTATUS status;
@@ -143,7 +150,8 @@ NTSTATUS WINAPI probe_NtQueueApcThread(HANDLE handle,PNTAPCFUNC function,ULONG_P
         }
     }
     ReleaseSRWLockExclusive(&thread->apc_lock);
-    probe_thread_release(thread);return status;
+    probe_thread_release(thread);
+    return status==STATUS_THREAD_IS_TERMINATING?STATUS_UNSUCCESSFUL:status;
 }
 void probe_thread_enter(struct guest_cpu *cpu,struct guest_cpu **previous)
 {

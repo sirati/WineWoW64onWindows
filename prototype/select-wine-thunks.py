@@ -34,3 +34,12 @@ for unit, source in sources.items():
     Path('prototype/out/wine-' + unit + '.c').write_text(
         '#line 1 "' + (root / (unit + '.c')).as_posix() + '"\n' + filtered)
 print(f'Wine thunks: {retained}/{len(definitions)} original definitions selected with native unwind data')
+
+# The native I/O adapter stores the original open options in file_state.
+# Reuse the server's mode predicate for completion association/notification.
+fd = Path('wine-11.0-source/server/fd.c').read_text()
+overlapped = re.search(r'^int is_fd_overlapped\( struct fd \*fd \)\n\{.*?^\}', fd, re.M | re.S)
+if not overlapped:
+    raise SystemExit('Wine is_fd_overlapped predicate missing')
+Path('prototype/out/wine-file-overlapped.inc').write_text(
+    'static ' + overlapped[0].replace('struct fd *fd', 'struct file_state *fd') + '\n')
