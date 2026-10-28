@@ -631,3 +631,43 @@ Host SHA256: 07C3F2793C764EEEF41CEC84E6631D1B05DB8160AB64CA8224D66C10B5B7C5B2.
 Evidence: evidence/supported-thread-c4b7d49/vm-results/guest-results/.
 Archive SHA256: 9b8f1a65a663c817531e701914e16a3481fe518bd6e4bc6d9cacda9ed99fe934.
 Reproducible primary audit: evidence/supported-thread-c4b7d49/audit-results.py.
+
+Activation inheritance and pending thread-pool waits
+
+An SSH-staged supplemental run on unchanged c4b7d49 verifies all seven
+transferred inputs and all 133 candidate files. Native plus five Wine runs
+pass activation inheritance for both simple and dependent contexts, through
+CreateThread and self-process CreateRemoteThread. Each process records four
+matching child contexts and zero child exits, with balanced context handles.
+Wine's existing CreateRemoteThreadEx inheritance algorithm remains in use.
+
+The isolated final upstream thread-pool sequence passes natively. All five
+Wine pending-callback controls reach WaitForThreadpoolWorkCallbacks after
+the work callback starts. Their watchdog reports phase 2, callback count 1
+and callback-done WAIT_OBJECT_0, indicating the completion event is signalled.
+The caller never reports return from the work wait. The same executable with
+--finished waits for callback completion before calling the work-wait API;
+its native and all five Wine runs pass, including work and empty-pool cleanup.
+
+Original Wine TpWaitForWork waits on finished_event in tp_object_wait.
+Callback completion wakes it through RtlWakeAllConditionVariable, then
+RtlWakeAddressAll and excluded NtAlertMultipleThreadByThreadId, service 0x64.
+The pending traces retain its STATUS_NOT_IMPLEMENTED return. These controls
+isolate that failed wait/wake route in the final upstream test's sequence;
+they do not establish every possible cause of the unmodified suite timeout.
+No additional guest NT service is added.
+
+The fixture watchdog prints its diagnostics but does not produce process
+exit 81. All five pending Wine rows instead time out at the runner's
+15-second limit with recorded process exit -1. They are failures, not
+bounded successful fixture completions. The process-exit hook returns through
+the current guest CPU gate; worker-initiated process exit needs a separate
+control before assigning the watchdog's exit failure to shutdown behavior.
+
+The direct suite exits 1: thirteen processes pass and five time out. Final
+manifest/supplemental hashes match, the archive hash matches the guest record,
+and the VM is destroyed. A preceding shared-folder copy attempt ran no tests
+and is retained separately. SSH staging avoids the failed Z: reads.
+Evidence: evidence/thread-tail-c4b7d49/vm-results-ssh/normalized/.
+Archive SHA256: 68eb6e0ef80cfcb5643705e5cfc0bed08ae5ed6074495f8e09ea88bd0d5c3802.
+Primary audit: evidence/thread-tail-c4b7d49/primary-audit.json.
