@@ -40,6 +40,8 @@ void WINAPI app_entry(void)
     if(!GlobalMemoryStatusEx(&memory)||memory.ullTotalVirtual!=(ULONGLONG)highest-(ULONG)(uintptr_t)basic.lowest+1)
         ExitProcess(78);
     void *allocation=VirtualAlloc(0,65536,MEM_RESERVE|MEM_COMMIT|MEM_TOP_DOWN,PAGE_READWRITE);
+    MESSAGE("process_view allocation/highest/error:\r\n");
+    message_hex((DWORD)(uintptr_t)allocation);message_hex(highest);message_hex(GetLastError());
     if(!allocation||(uintptr_t)allocation+65535>highest)ExitProcess(79);
 #ifdef TEST_LARGE_ADDRESS_AWARE
     if((uintptr_t)allocation<0x80000000)ExitProcess(81);

@@ -72,6 +72,22 @@ extern void (WINAPI *pBTCpuNotifyMemoryProtect)(void *,SIZE_T,ULONG,BOOL,NTSTATU
 static void *guest_export(struct guest_module *m,const char *name,WORD ordinal);
 static void fail(const char *s);
 static void fail(const char *s) { fprintf(stderr,"FAIL %s, Windows error %lu\n",s,GetLastError()); exit(80); }
+static void reserve_guest_address_boundaries(void)
+{
+    SYSTEM_INFO system;GetSystemInfo(&system);
+    const ULONG_PTR limits[]={UINT64_C(0x80000000),UINT64_C(0x100000000)};
+    /* Wine's user limit excludes the final allocation granule. Native x64
+     * ZeroBits masks alone allow it, so make these two boundaries unavailable
+     * before the guest loader or native bridge can allocate there. */
+    for(unsigned i=0;i<sizeof(limits)/sizeof(limits[0]);i++)
+    {
+        void *base=(void *)(limits[i]-system.dwAllocationGranularity);
+        MEMORY_BASIC_INFORMATION memory;
+        if(!VirtualQuery(base,&memory,sizeof(memory)))fail("query guest address boundary");
+        if(memory.State==MEM_FREE&&!VirtualAlloc(base,system.dwAllocationGranularity,MEM_RESERVE,PAGE_NOACCESS))
+            fail("reserve guest address boundary");
+    }
+}
 static void set_guest_address_limit(USHORT characteristics)
 {
     SYSTEM_BASIC_INFORMATION info;
@@ -987,6 +1003,7 @@ int main(int argc,char **argv)
         printf("STOCK_LOAD handle=%p error=%lu\n",m,GetLastError());return m?0:2;
     }
     BOOL wine_components=(argc>1&&!strcmp(argv[1],"--wine-components"));
+    reserve_guest_address_boundaries();
     const char *app_arg=wine_components ? (argc>2?argv[2]:"guest/hello32.exe") : (argc>1?argv[1]:"guest/hello32.exe");
     static void *builtin_table[BRIDGE_COUNT];
     for(unsigned i=0;i<BRIDGE_COUNT;i++)builtin_table[i]=(void *)bridge_unavailable;

@@ -149,6 +149,14 @@ void probe_thread_unregister(void)
 NTSTATUS WINAPI probe_NtQueryInformationThread(HANDLE handle,THREADINFOCLASS type,void *info,ULONG size,ULONG *returned)
 {
     NTSTATUS status=NtQueryInformationThread(handle,type,info,size,returned);
+    /* Wine's Win32 wrappers use the backend's relative priority directly.
+     * Windows NT represents the two extreme values as +/-16 instead of 15. */
+    if(!status&&type==ThreadBasicInformation)
+    {
+        THREAD_BASIC_INFORMATION *basic=info;
+        if(basic->BasePriority==THREAD_PRIORITY_TIME_CRITICAL+1)--basic->BasePriority;
+        else if(basic->BasePriority==THREAD_PRIORITY_IDLE-1)++basic->BasePriority;
+    }
     if(!status&&(type==ThreadBasicInformation||type==ThreadQuerySetWin32StartAddress))
     {
         struct guest_thread *thread=probe_thread_acquire(handle);
@@ -166,6 +174,13 @@ NTSTATUS WINAPI probe_NtQueryInformationThread(HANDLE handle,THREADINFOCLASS typ
 }
 NTSTATUS WINAPI probe_NtSetInformationThread(HANDLE handle,THREADINFOCLASS type,void *info,ULONG size)
 {
+    if(type==ThreadBasePriority&&size==sizeof(LONG)&&info)
+    {
+        LONG priority=*(LONG *)info;
+        if(priority==THREAD_PRIORITY_TIME_CRITICAL)++priority;
+        else if(priority==THREAD_PRIORITY_IDLE)--priority;
+        return NtSetInformationThread(handle,type,&priority,sizeof(priority));
+    }
     if(type!=ThreadZeroTlsCell)return NtSetInformationThread(handle,type,info,size);
     if(size!=sizeof(ULONG))return STATUS_INFO_LENGTH_MISMATCH;
     ULONG index=*(ULONG *)info;
