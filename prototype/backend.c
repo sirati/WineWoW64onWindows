@@ -203,6 +203,21 @@ NTSTATUS WINAPI probe_NtOpenDirectoryObject(HANDLE *directory,ACCESS_MASK access
     return status;
 }
 NTSTATUS (WINAPI *__imp_probe_NtOpenDirectoryObject)(HANDLE *,ACCESS_MASK,OBJECT_ATTRIBUTES *)=probe_NtOpenDirectoryObject;
+/* The guest is a 32-bit process: as in Windows' WoW64 layer and Wine's
+ * server for 32-bit clients, opening a key without an explicit registry
+ * view selects the 32-bit view (WOW6432Node). */
+static ACCESS_MASK guest_registry_view(ACCESS_MASK access)
+{ return access&(KEY_WOW64_32KEY|KEY_WOW64_64KEY)?access:access|KEY_WOW64_32KEY; }
+NTSTATUS WINAPI probe_NtCreateKey(HANDLE *key,ACCESS_MASK access,OBJECT_ATTRIBUTES *attributes,ULONG index,
+                                UNICODE_STRING *class,ULONG options,ULONG *disposition)
+{ return NtCreateKey(key,guest_registry_view(access),attributes,index,class,options,disposition); }
+NTSTATUS WINAPI probe_NtOpenKey(HANDLE *key,ACCESS_MASK access,OBJECT_ATTRIBUTES *attributes)
+{ return NtOpenKey(key,guest_registry_view(access),attributes); }
+NTSTATUS WINAPI probe_NtOpenKeyEx(HANDLE *key,ACCESS_MASK access,OBJECT_ATTRIBUTES *attributes,ULONG options)
+{ return NtOpenKeyEx(key,guest_registry_view(access),attributes,options); }
+NTSTATUS (WINAPI *__imp_probe_NtCreateKey)(HANDLE *,ACCESS_MASK,OBJECT_ATTRIBUTES *,ULONG,UNICODE_STRING *,ULONG,ULONG *)=probe_NtCreateKey;
+NTSTATUS (WINAPI *__imp_probe_NtOpenKey)(HANDLE *,ACCESS_MASK,OBJECT_ATTRIBUTES *)=probe_NtOpenKey;
+NTSTATUS (WINAPI *__imp_probe_NtOpenKeyEx)(HANDLE *,ACCESS_MASK,OBJECT_ATTRIBUTES *,ULONG)=probe_NtOpenKeyEx;
 NTSTATUS WINAPI probe_NtSetInformationFile(HANDLE file,IO_STATUS_BLOCK *io,void *info,ULONG size,FILE_INFORMATION_CLASS type)
 {
     NTSTATUS adapted;
