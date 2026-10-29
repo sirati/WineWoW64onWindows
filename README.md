@@ -33,6 +33,8 @@ the loader follows Wine's builtin/unixlib search and cache rules. The Civ3
 renderer supplies its own x86_64-native unixlib. Wine's GUI unix side is
 intended to run with the existing null display driver, without routing guest
 user32 or gdi32 calls to the host's win32u.
+The stock OpenGL PE also has a Wine-derived x64 null-device companion so its
+process attach can complete before the full GUI stack is enabled.
 
 `patches/` records changes to upstream Wine. `nix/` and the cross-build scripts
 record compilation differences. The adapter sources under `prototype/` are
