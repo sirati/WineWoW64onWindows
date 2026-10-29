@@ -2,12 +2,15 @@
 param(
     [Parameter(Mandatory=$true)][string]$GameRoot,
     [int]$Seconds=30,
-    [string]$ReportName='civ3-smoke'
+    [string]$ReportName='civ3-smoke',
+    [string]$RuntimeRoot=''
 )
 $ErrorActionPreference='Stop'
 if($Seconds -lt 1 -or $Seconds -gt 600){throw 'Seconds must be between 1 and 600'}
 $root=$PSScriptRoot
-$runtime=(Resolve-Path $root).Path
+$runtime=if($RuntimeRoot){(Resolve-Path $RuntimeRoot).Path}
+         elseif(Test-Path -LiteralPath (Join-Path $root 'runtime/wine-host.exe')){(Resolve-Path (Join-Path $root 'runtime')).Path}
+         else{(Resolve-Path $root).Path}
 $game=(Resolve-Path $GameRoot).Path
 $application=Join-Path $game 'Conquests/Civ3Conquests.exe'
 if(-not (Test-Path -LiteralPath $application)){throw "Missing Civ3Conquests.exe: $application"}
