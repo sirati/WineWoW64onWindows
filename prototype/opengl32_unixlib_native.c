@@ -36,18 +36,9 @@ static NTSTATUS WINAPI unavailable(void *args)
     return STATUS_NOT_IMPLEMENTED;
 }
 
-__declspec(dllexport) unixlib_entry_t __wine_unix_call_wow64_funcs[4096];
-
-BOOL WINAPI DllMain(HINSTANCE instance,DWORD reason,void *reserved)
-{
-    (void)instance;(void)reserved;
-    if(reason==DLL_PROCESS_ATTACH)
-    {
-        for(unsigned i=0;i<4096;i++)
-            __wine_unix_call_wow64_funcs[i]=unavailable;
-        __wine_unix_call_wow64_funcs[0]=process_attach;
-        __wine_unix_call_wow64_funcs[1]=thread_attach;
-        __wine_unix_call_wow64_funcs[2]=process_detach;
-    }
-    return TRUE;
-}
+/* The native companion is linked without a CRT entry point.  Static table
+ * initialization therefore keeps the first Wine calls valid before any
+ * PE-side attach callback could run. */
+__declspec(dllexport) unixlib_entry_t __wine_unix_call_wow64_funcs[4]={
+    process_attach, thread_attach, process_detach, unavailable
+};
