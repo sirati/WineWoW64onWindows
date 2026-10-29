@@ -82,6 +82,21 @@ static BOOL native_unixlib_exists(const char *path)
     free(name);
     return attributes!=INVALID_FILE_ATTRIBUTES&&!(attributes&FILE_ATTRIBUTE_DIRECTORY);
 }
+/* As in find_builtin_dll, a unixlib is named <module>.so. That name also
+ * keeps it apart from system DLLs: the Windows loader binds an import to any
+ * loaded module with the same base name, so a native opengl32.dll unixlib
+ * would capture a later native module's opengl32.dll import. A unixlib under
+ * the module's own name is still found. ext points into path. */
+static BOOL find_unixlib_file(char *path,char *ext)
+{
+    char original[16];
+    if(!ext||strlen(ext)<3||strlen(ext)>=sizeof(original))return native_unixlib_exists(path);
+    strcpy(original,ext);
+    strcpy(ext,".so");
+    if(native_unixlib_exists(path))return TRUE;
+    strcpy(ext,original);
+    return native_unixlib_exists(path);
+}
 #include "out/wine-unixlib-paths.inc"
 
 static BOOL is_stock_wine_directory(const char *path)
@@ -234,7 +249,9 @@ NTSTATUS probe_builtin_unixlib(void *module,ULONGLONG *handle)
         {
             char *directory=build_path(mapped_root,get_so_dir(IMAGE_FILE_MACHINE_AMD64));
             char *path=directory?build_path(directory,name):NULL;
-            if(path&&native_unixlib_exists(path))load_builtin_unixlib(module,path);
+            const char *dot=strrchr(name,'.');
+            char *ext=path&&dot?path+strlen(path)-strlen(dot):NULL;
+            if(path&&find_unixlib_file(path,ext))load_builtin_unixlib(module,path);
             free(path);free(directory);free(mapped_root);
         }
         if(find_native_unixlib(module,&nt_name,&exp_name)==STATUS_NO_MEMORY)

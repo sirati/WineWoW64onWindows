@@ -29,8 +29,11 @@ No locally installed MinGW, copied
 Wine installation, prebuilt DLL or absolute developer store path is an input.
 The Linux Wine build supplies build tools and PE components. Native x64
 unixlib DLLs are loaded from `x86_64-native` beside the x86 builtin DLLs;
-the loader follows Wine's builtin/unixlib search and cache rules. The Civ3
-renderer supplies its own x86_64-native unixlib.
+the loader follows Wine's builtin/unixlib search and cache rules. As in Wine,
+a unixlib is named `<module>.so`; `<module>.dll` is also found. Windows binds
+an import to any loaded module with the same base name, so the `.so` name
+keeps a unixlib such as opengl32's from capturing a native module's import
+of the system DLL. The Civ3 renderer supplies its own x86_64-native unixlib.
 
 Guest user32 and gdi32 run on Wine's own GUI stack, never the host's win32u.
 The Unix side of win32u, with its null display driver, and the original

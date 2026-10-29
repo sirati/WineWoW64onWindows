@@ -53,16 +53,16 @@ parts = [helpers, native_dir, paths, '''static NTSTATUS find_native_unixlib(
     if (build_dir)
     {
         ptr = prepend_build_dir_path( file + pos, ".dll", so_dir, "/dlls", build_dir );
-        if (native_unixlib_exists( ptr )) goto found;
+        if (find_unixlib_file( ptr, ext )) goto found;
         ptr = prepend_build_dir_path( file + pos, ".exe", so_dir, "/programs", build_dir );
-        if (native_unixlib_exists( ptr )) goto found;
+        if (find_unixlib_file( ptr, ext )) goto found;
     }
     for (i = 0; dll_paths[i]; i++)
     {
         ptr = file + pos;
         ptr = prepend( ptr, so_dir, strlen(so_dir) );
         ptr = prepend( ptr, dll_paths[i], strlen(dll_paths[i]) );
-        if (native_unixlib_exists( ptr )) goto found;
+        if (find_unixlib_file( ptr, ext )) goto found;
     }
     goto done;
 found:

@@ -60,7 +60,7 @@ crtend=$($cc64 -print-file-name=crtend.o)
   -Wl,--kill-at -Wl,--subsystem,windows "${mitigation_flags[@]}" "${winlibs[@]}"
 mkdir -p prototype/out/stock-wine/x86_64-native
 "$cc64" "${flags[@]}" -shared -nostdlib prototype/opengl32_unixlib_native.c \
-  -o prototype/out/stock-wine/x86_64-native/opengl32.dll \
+  -o prototype/out/stock-wine/x86_64-native/opengl32.so \
   -Wl,--kill-at -Wl,--subsystem,windows "${mitigation_flags[@]}" "${winlibs[@]}"
 "$cc32" "${flags[@]}" "${inc[@]}" -shared -nostdlib prototype/guest_ntdll.c prototype/guest_ntdll.def \
   -Wl,--entry,DllMain@12,--image-base,0x10000000,--add-stdcall-alias,--out-implib,prototype/out/libguest_ntdll.a \

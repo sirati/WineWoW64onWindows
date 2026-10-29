@@ -51,6 +51,14 @@ try {
     New-Item -ItemType Directory -Force "$split/pe/i386-windows","$split/native/x86_64-native"|Out-Null
     Copy-Item -LiteralPath "$echo/i386-windows/wine_unixlib_echo.dll" -Destination "$split/pe/i386-windows/"
     Copy-Item -LiteralPath "$echo/x86_64-native/wine_unixlib_echo.dll" -Destination "$split/native/x86_64-native/"
+    # Wine's unixlib name, <module>.so, with no <module>.dll beside it. The
+    # app sits alone so its builtin comes from $split/pe/i386-windows.
+    $splitSo=Join-Path $results 'split-so'
+    $splitSoApp=Join-Path $results 'split-so-app'
+    New-Item -ItemType Directory -Force "$splitSo/x86_64-native",$splitSoApp|Out-Null
+    Copy-Item -LiteralPath "$echo/x86_64-native/wine_unixlib_echo.dll" -Destination "$splitSo/x86_64-native/wine_unixlib_echo.so"
+    Copy-Item -LiteralPath $app -Destination $splitSoApp
+    $splitSoArguments='--wine-components "'+(Join-Path $splitSoApp 'wine-unixlib-echo-app.exe')+'"'
     $build=Join-Path $results 'build'
     $buildModule=Join-Path $build 'dlls/wine_unixlib_echo'
     $buildApp=Join-Path $results 'build-native-app'
@@ -89,6 +97,7 @@ try {
         Invoke-Control "root-$i" "$runtime/wine-host.exe" $arguments $runtime $echo 0 '(?m)^ECHO_OK calls=20\r?$' $true
         Invoke-Control "sibling-$i" "$runtime/wine-host.exe" $arguments $runtime "$echo/i386-windows" 0 '(?m)^ECHO_OK calls=20\r?$' $true
         Invoke-Control "split-$i" "$runtime/wine-host.exe" $arguments $runtime "$split/pe;$split/native" 0 '(?m)^ECHO_OK calls=20\r?$' $true
+        Invoke-Control "split-so-$i" "$runtime/wine-host.exe" $splitSoArguments $runtime "$split/pe;$splitSo" 0 '(?m)^ECHO_OK calls=20\r?$' $true
         Invoke-Control "build-$i" "$runtime/wine-host.exe" $arguments $runtime '' 0 '(?m)^ECHO_OK calls=20\r?$' $true $build
         Invoke-Control "build-native-$i" "$runtime/wine-host.exe" $buildArguments $runtime '' 0 '(?m)^ECHO_OK calls=20\r?$' $true $build
     }
