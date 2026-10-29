@@ -44,12 +44,12 @@ BOOL WINAPI DllMain(HINSTANCE instance,DWORD reason,void *reserved)
     (void)instance;(void)reserved;
     if(reason==DLL_PROCESS_ATTACH)
     {
-        for(unsigned i=0;i<ARRAY_SIZE(__wine_unix_call_wow64_funcs);i++)
+        for(unsigned i=0;i<4096;i++)
             __wine_unix_call_wow64_funcs[i]=unavailable;
         __wine_unix_call_wow64_funcs[0]=process_attach;
         __wine_unix_call_wow64_funcs[1]=thread_attach;
         __wine_unix_call_wow64_funcs[2]=process_detach;
-        for(unsigned i=0;i<ARRAY_SIZE(__wine_unix_call_funcs);i++)
+        for(unsigned i=0;i<4096;i++)
             __wine_unix_call_funcs[i]=__wine_unix_call_wow64_funcs[i];
     }
     return TRUE;
