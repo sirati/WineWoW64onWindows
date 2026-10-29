@@ -386,10 +386,13 @@ static void registry_name(const OBJECT_ATTRIBUTES *attr,OBJECT_ATTRIBUTES *copy,
     name->Buffer=buffer;name->Length=name->MaximumLength=registry_root.Length+tail;
     copy->ObjectName=name;
 }
+/* Wine's server opens a link key itself for REG_OPTION_OPEN_LINK; the
+ * native registry does so for the OBJ_OPENLINK attribute. */
 NTSTATUS WINAPI probe_gui_NtOpenKeyEx(HANDLE *key,ACCESS_MASK access,const OBJECT_ATTRIBUTES *attr,ULONG options)
 {
     WCHAR buffer[1024];UNICODE_STRING name;OBJECT_ATTRIBUTES copy;
     registry_name(attr,&copy,&name,buffer,sizeof(buffer));
+    if(options&REG_OPTION_OPEN_LINK)copy.Attributes|=OBJ_OPENLINK;
     return NtOpenKeyEx(key,access,&copy,options);
 }
 NTSTATUS WINAPI probe_gui_NtCreateKey(HANDLE *key,ACCESS_MASK access,const OBJECT_ATTRIBUTES *attr,ULONG index,
@@ -397,6 +400,7 @@ NTSTATUS WINAPI probe_gui_NtCreateKey(HANDLE *key,ACCESS_MASK access,const OBJEC
 {
     WCHAR buffer[1024];UNICODE_STRING name;OBJECT_ATTRIBUTES copy;
     registry_name(attr,&copy,&name,buffer,sizeof(buffer));
+    if(options&REG_OPTION_OPEN_LINK)copy.Attributes|=OBJ_OPENLINK;
     return NtCreateKey(key,access,&copy,index,class,options,disposition);
 }
 /* win32u links display keys with absolute REG_LINK targets, which the
