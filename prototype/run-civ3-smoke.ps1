@@ -5,7 +5,8 @@ param(
     [string]$ReportName='civ3-smoke',
     [string]$RuntimeRoot='',
     [string]$WineDebug='',
-    [string]$GuestDebug=''
+    [string]$GuestDebug='',
+    [switch]$HostTrace
 )
 $ErrorActionPreference='Stop'
 if($Seconds -lt 1 -or $Seconds -gt 600){throw 'Seconds must be between 1 and 600'}
@@ -33,6 +34,7 @@ try {
     # Host-side Wine code (win32u, server) and the x86 Wine DLLs log separately.
     if($WineDebug){$p.StartInfo.EnvironmentVariables['PROBE_WINE_DEBUG']=$WineDebug}
     if($GuestDebug){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=$GuestDebug}
+    if($HostTrace){$p.StartInfo.EnvironmentVariables['WINE_PROBE_TRACE']='1'}
     [void]$p.Start();$pidValue=$p.Id;$sessionId=$p.SessionId
     $outTask=$p.StandardOutput.ReadToEndAsync();$errTask=$p.StandardError.ReadToEndAsync()
     $timedOut=-not $p.WaitForExit($Seconds*1000)
@@ -47,7 +49,7 @@ try {
         name=$ReportName;program=$program;arguments=$arguments
         workingDirectory=$p.StartInfo.WorkingDirectory;pid=$pidValue;sessionId=$sessionId
         timeoutSeconds=$Seconds;exitCode=$exitCode;timedOut=$timedOut
-        wineDebug=$WineDebug;guestDebug=$GuestDebug
+        wineDebug=$WineDebug;guestDebug=$GuestDebug;hostTrace=[bool]$HostTrace
         wineLoadMarker=($stdout -match 'WINE_LOAD_APPLICATION status=00000000')
         wineImportsMarker=($stdout -match 'WINE_IMPORTS status=00000000')
         wineAttachMarker=($stdout -match 'WINE_ATTACH status=00000000')

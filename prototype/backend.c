@@ -366,11 +366,21 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
             else diagnostic("HARD_ERROR parameter[%u]=%08lx\n",i,value);
         }
     }
-    if(probe_trace&&(n==0x33||n==0x58||n==0x4a))
+    /* Named file, section, directory and registry opens; attributes queries;
+     * registry value names; and read sizes. */
+    if(probe_trace&&(n==0x33||n==0x58||n==0x4a||n==0x55||n==0x12||n==0xb0||n==0x1d||n==0x3d||n==0xbe))
     {
-        OBJECT_ATTRIBUTES32 *oa=(void *)(uintptr_t)a[2];UNICODE_STRING32 *name=oa?(void *)(uintptr_t)oa->ObjectName:NULL;
-        if(name)diagnostic("OBJECT_NAME service=%x access=%08x root=%08lx path=%.*ls\n",n,a[1],oa->RootDirectory,name->Length/2,(WCHAR *)(uintptr_t)name->Buffer);
+        OBJECT_ATTRIBUTES32 *oa=(void *)(uintptr_t)a[n==0x3d||n==0xbe?0:2];UNICODE_STRING32 *name=oa?(void *)(uintptr_t)oa->ObjectName:NULL;
+        if(name)diagnostic("OBJECT_NAME service=%x access=%08x root=%08lx path=%.*ls\n",n,n==0x3d||n==0xbe?0:a[1],oa->RootDirectory,name->Length/2,(WCHAR *)(uintptr_t)name->Buffer);
     }
+    if(probe_trace&&(n==0x17||n==0x60))
+    {
+        UNICODE_STRING32 *name=(void *)(uintptr_t)a[1];
+        if(name)diagnostic("VALUE_NAME service=%x key=%08x name=%.*ls\n",n,a[0],name->Length/2,(WCHAR *)(uintptr_t)name->Buffer);
+    }
+    if(probe_trace&&n==0x55)diagnostic("CREATE_FILE disposition=%u options=%08x\n",a[7],a[8]);
+    if(probe_trace&&n==0x6)diagnostic("READ_FILE handle=%08x length=%u offset=%lld\n",a[0],a[6],
+                                      a[7]?*(LONGLONG *)(uintptr_t)a[7]:-1LL);
     if(probe_trace&&n==0x27)diagnostic("SET_FILE handle=%x class=%u len=%u data=%08lx\n",a[0],a[4],a[3],*(DWORD *)(uintptr_t)a[2]);
     switch(n)
     {
