@@ -18,7 +18,7 @@ void WINAPI app_entry(void)
     void *handler=AddVectoredExceptionHandler(1,on_exception);
     if(!memory||!handler)ExitProcess(77);
     for(unsigned i=0;i<sizeof(code);i++)memory[i]=code[i];
-    FlushInstructionCache(GetCurrentProcess(),memory,sizeof(code));
+    if(!FlushInstructionCache(GetCurrentProcess(),memory,sizeof(code)))ExitProcess(80);
     MESSAGE("ALIGNMENT_BEGIN\r\n");
     ((void (__cdecl *)(void))memory)();
     MESSAGE("alignment.delivered=");message_hex(delivered);

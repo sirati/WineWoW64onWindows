@@ -359,6 +359,7 @@ extern NTSTATUS WINAPI wow64_NtSuspendThread(UINT *),wow64_NtResumeThread(UINT *
 extern NTSTATUS WINAPI wow64_NtCreateThreadEx(UINT *),wow64_NtTerminateThread(UINT *);
 extern NTSTATUS WINAPI wow64_NtOpenSection(UINT *);
 extern NTSTATUS WINAPI wow64_NtGetCurrentProcessorNumber(UINT *),wow64_NtAreMappedFilesTheSame(UINT *);
+extern NTSTATUS WINAPI wow64_NtFlushInstructionCache(UINT *);
 extern NTSTATUS WINAPI wow64_NtCreateUserProcess(UINT *);
 extern NTSTATUS WINAPI wow64_NtQueryObject(UINT *),wow64_NtSetInformationObject(UINT *);
 extern NTSTATUS WINAPI wow64_NtTestAlert(UINT *);
@@ -449,6 +450,7 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
     case 0x0046: status=wow64_NtYieldExecution(a);break;
     case 0x0098: status=wow64_NtGetCurrentProcessorNumber(a);break;
     case 0x006c: status=wow64_NtAreMappedFilesTheSame(a);break;
+    case 0x0093: status=wow64_NtFlushInstructionCache(a);break;
     case 0x0037: status=wow64_NtOpenSection(a);break;
     case 0x0089: status=wow64_NtCreateUserProcess(a);break;
     case 0x007b: status=wow64_NtCreateKeyedEvent(a);break;
