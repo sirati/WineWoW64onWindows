@@ -101,6 +101,8 @@ for test in socket_dns32 socket32 socket_extensions32; do
   "$cc32" "${guest_flags[@]}" prototype/$test.c -lws2_32 -lkernel32 \
     -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/$test.exe
 done
+"$cc32" "${guest_flags[@]}" prototype/registry_view32.c -ladvapi32 -lkernel32 \
+  -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/registry_view32.exe
 "$cc32" "${guest_flags[@]}" -shared prototype/socket_library32.c -lws2_32 \
   -Wl,--entry,_DllMain@12,--kill-at -o prototype/out/guest/socket_library32.dll
 "$cc32" "${guest_flags[@]}" -shared prototype/dynamic_tls_library32.c \
