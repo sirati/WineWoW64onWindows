@@ -1,7 +1,7 @@
 /* Headless GUI controls for Wine's win32u with its null display driver.
  * Each mode prints one exact GUI_OK line and exits 0, or prints GUI_FAIL with
  * the failing step and exits with 20+step. The same EXE is the native control.
- * Modes: window, timer, cursor, dc, focus, thread. */
+ * Modes: window, timer, cursor, dc, focus, thread, text. */
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
@@ -184,6 +184,39 @@ static void focus_mode(void)
     snprintf(details,sizeof(details),"focus=1 active=1 setfocus=%ld killfocus=%ld",setfocus,killfocus);
     pass(details);
 }
+static void text_mode(void)
+{
+    char details[200];
+    HDC memory=CreateCompatibleDC(NULL);
+    if(!memory)fail(1,"CreateCompatibleDC");
+    BITMAPINFO info={{sizeof(BITMAPINFOHEADER),64,-32,1,32,BI_RGB}};
+    DWORD *bits=NULL;
+    HBITMAP dib=CreateDIBSection(memory,&info,DIB_RGB_COLORS,(void **)&bits,NULL,0);
+    if(!dib||!bits)fail(2,"CreateDIBSection");
+    HGDIOBJ old_bitmap=SelectObject(memory,dib);
+    PatBlt(memory,0,0,64,32,WHITENESS);
+    HFONT font=CreateFontW(-16,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,
+                           CLIP_DEFAULT_PRECIS,NONANTIALIASED_QUALITY,DEFAULT_PITCH,L"Tahoma");
+    if(!font)fail(3,"CreateFontW");
+    HGDIOBJ old_font=SelectObject(memory,font);
+    TEXTMETRICW metrics;
+    if(!GetTextMetricsW(memory,&metrics)||metrics.tmHeight<=0)fail(4,"GetTextMetricsW");
+    SIZE extent;
+    if(!GetTextExtentPoint32W(memory,L"Wine",4,&extent)||extent.cx<=0||extent.cy<=0)fail(5,"GetTextExtentPoint32W");
+    WCHAR face[LF_FACESIZE]={0};
+    if(!GetTextFaceW(memory,LF_FACESIZE,face))fail(6,"GetTextFaceW");
+    SetTextColor(memory,RGB(0,0,0));SetBkMode(memory,TRANSPARENT);
+    if(!TextOutW(memory,2,2,L"Wine",4))fail(7,"TextOutW");
+    GdiFlush();
+    unsigned int ink=0;
+    for(unsigned int i=0;i<64*32;i++)if((bits[i]&0xffffff)!=0xffffff)ink++;
+    if(!ink)fail(8,"glyph ink");
+    SelectObject(memory,old_font);SelectObject(memory,old_bitmap);
+    DeleteObject(font);DeleteObject(dib);DeleteDC(memory);
+    snprintf(details,sizeof(details),"height=%ld extent=%ldx%ld ink=%u face=%ls",
+             metrics.tmHeight,extent.cx,extent.cy,ink,face);
+    pass(details);
+}
 static HWND worker_window;
 static HANDLE worker_ready;
 static DWORD WINAPI worker(void *arg)
@@ -224,6 +257,7 @@ int main(int argc,char **argv)
     if(!strcmp(mode,"dc"))dc_mode();
     if(!strcmp(mode,"focus"))focus_mode();
     if(!strcmp(mode,"thread"))thread_mode();
+    if(!strcmp(mode,"text"))text_mode();
     printf("GUI_FAIL mode=%s step=0 what=usage\n",mode);
     return 2;
 }

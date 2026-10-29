@@ -1,10 +1,11 @@
 [CmdletBinding()]
 param(
-    [string[]]$Modes=@('window','timer','cursor','dc','focus','thread'),
+    [string[]]$Modes=@('window','timer','cursor','dc','focus','thread','text'),
     [int]$Repeats=3,
     [string]$ReportName='gui-controls',
     [int]$TimeoutSeconds=30,
     [string]$WineDebug='',
+    [string]$GuestDebug='',
     [switch]$SkipNative
 )
 # Wine's own win32u with the null display driver, against the same EXE run
@@ -34,7 +35,9 @@ foreach($mode in $Modes) {
             $p.StartInfo.WorkingDirectory=$out
             $p.StartInfo.UseShellExecute=$false
             $p.StartInfo.RedirectStandardOutput=$true;$p.StartInfo.RedirectStandardError=$true
+            # Host-side Wine code (win32u, server) and the x86 Wine DLLs log separately.
             if($WineDebug -and -not $native){$p.StartInfo.EnvironmentVariables['PROBE_WINE_DEBUG']=$WineDebug}
+            if($GuestDebug -and -not $native){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=$GuestDebug}
             [void]$p.Start()
             $childPid=$p.Id;$sessionId=$p.SessionId
             $outTask=$p.StandardOutput.ReadToEndAsync();$errTask=$p.StandardError.ReadToEndAsync()
@@ -56,7 +59,7 @@ foreach($mode in $Modes) {
             $rows+=[pscustomobject]@{
                 name=$name;mode=$mode;native=$native;iteration=$iteration
                 program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;workingDirectory=$out
-                wineDebug=if($native){''}else{$WineDebug}
+                wineDebug=if($native){''}else{$WineDebug};guestDebug=if($native){''}else{$GuestDebug}
                 sessionId=$sessionId;userInteractive=[Environment]::UserInteractive
                 pid=$childPid;exitCode=$exitCode;expectedExit=0;timedOut=$timedOut;timeoutSeconds=$TimeoutSeconds
                 marker=$marker;markerMatches=$markerMatches;wineLoadMarker=$loadMarker;hostReturnMarker=$hostReturn
