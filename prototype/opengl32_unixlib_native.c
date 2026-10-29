@@ -37,7 +37,6 @@ static NTSTATUS WINAPI unavailable(void *args)
 }
 
 __declspec(dllexport) unixlib_entry_t __wine_unix_call_wow64_funcs[4096];
-__declspec(dllexport) unixlib_entry_t __wine_unix_call_funcs[4096];
 
 BOOL WINAPI DllMain(HINSTANCE instance,DWORD reason,void *reserved)
 {
@@ -49,8 +48,6 @@ BOOL WINAPI DllMain(HINSTANCE instance,DWORD reason,void *reserved)
         __wine_unix_call_wow64_funcs[0]=process_attach;
         __wine_unix_call_wow64_funcs[1]=thread_attach;
         __wine_unix_call_wow64_funcs[2]=process_detach;
-        for(unsigned i=0;i<4096;i++)
-            __wine_unix_call_funcs[i]=__wine_unix_call_wow64_funcs[i];
     }
     return TRUE;
 }
