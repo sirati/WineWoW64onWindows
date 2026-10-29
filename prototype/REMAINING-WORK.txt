@@ -5,8 +5,9 @@ window behavior is validated in Luna's logged-on interactive session. Guest
 user32/gdi32 use Wine's own headless GUI path: win32u with the null display
 driver, wow64win and wineserver window/message state run in-process; the
 host's win32u is not used. Its x86 controls pass (docs/validation-gui-c56a5df.txt).
-The Civ3 smoke launch is the remaining active item. Sound output and ARM64
-remain excluded.
+Civ3Conquests.exe reaches its main loop headless
+(docs/validation-civ3-40c68b9.txt); the renderer DLLs are the next step.
+Sound output and ARM64 remain excluded.
 
 The accepted baseline and focused results are recorded in README.txt and
 the Luna evidence bundles. The demonstrated forced-termination wait races
@@ -56,5 +57,5 @@ upstream thread suite or adding a guest service. See the upstream report.
 | C++ nested returning-helper diagnostic | The focused nested-return diagnostic still fails in stock Wine 11 as well as the port. Normal catches, rethrow, destructor cleanup, worker exceptions and SEH pass. | First reproduce with a current upstream Wine build, then decide whether the test is invalid or needs a Wine exception-frame fix. | Unknown |
 | Broader unmodified applications | 7-Zip, Lua, SQLite, BusyBox and 7zr controls pass through Wine's loader. Universal application compatibility is not established. | Expand the corpus by DLL family and loader behavior. | High |
 | Civ3 Wine GUI stack | c56a5df passes native plus Wine window/Send/PostMessage, WM_TIMER/TIMERPROC, SetCursor/SetCursorPos/GetCursorPos, screen/window/DIB DC, focus, cross-thread SendMessage and FreeType text controls in sessions 0 and 1 (3 and 2 Wine runs each). Native SetCursorPos fails only in session 0 (error 1459). | Wine's win32u, wow64win and server window/message units run in-process with nulldrv. Explorer's desktop sizing and ClipCursor(NULL) are applied without explorer. D3DKMT, Vulkan and EGL are not provided; clipboard and hooks are compiled but have no dedicated controls. | Verified for tested controls |
-| Civ3 smoke launch | With the GUI stack, c56a5df reaches `WINE_ATTACH`, loads jgl, DirectSound, Miles and DirectInput, and then faults in Civ3's own error reporter (0x5cdb06) after its `Install_Path` registry lookup fails: the VM has the keys only under WOW6432Node. Raw evidence is under `evidence/gui-validation/validation-c56a5df`. | Give the guest Windows' 32-bit registry view, rerun, and record the next missing DLL or service before adding IFC23 and the Civ3 renderer DLLs. | Medium |
+| Civ3 smoke launch | 40c68b9 runs Civ3Conquests.exe headless in session 0 for the full 60 s in two runs, reaching its PeekMessage main loop with no unimplemented service (docs/validation-civ3-40c68b9.txt). Guest key opens now get Windows' 32-bit registry view. Remaining err: lines are the game IFC23.dll's unregistered COM class, no audio driver, no Common-Controls 6.0 manifest and no Vulkan. | Add the renderer's IFC23.dll and civ3r_native DLLs, then exercise rendering and input. Sound output stays out of scope. | Next step: renderer DLLs |
 | ARM64, additional NT services | Outside this target. | No work in this phase. | Excluded |

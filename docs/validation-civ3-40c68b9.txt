@@ -1,0 +1,53 @@
+Civ3 headless smoke launch and 32-bit registry view, 2026-10-29
+
+Candidate: 40c68b915b3cec079e9f595ddd33b9ceeaedbb86
+wine-host.exe SHA256:
+DDAECA7A631C8959650CBBE2313EDEEBF701641481B4E5A82A861AD1448B904D
+
+Luna 6 ran the frozen candidate in a throwaway VM from the Civ3 layer image
+(win11-civ3.qcow2), which holds a copy of the game at
+C:\Games\Civilization III Complete and its Install_Path keys under
+WOW6432Node. Civ3Conquests.exe is the C3X build, SHA256
+66D0AE91DE6F4A2376E03AA74EB29A8256F02108CA3A4C024A4857337BC45EE6. The
+primary audited the raw rows.
+
+Civ3 smoke
+
+Both runs used `wine-host.exe --wine-components "C:\Games\Civilization III
+Complete\Conquests\Civ3Conquests.exe"` from the Conquests directory, in
+session 0, with no display, sound device or renderer DLLs. Both were still
+running at the 60 s limit and were stopped by the runner (exit 1 after
+taskkill). Both have WINE_LOAD_APPLICATION, WINE_IMPORTS and WINE_ATTACH
+status 0. No NT service is unimplemented.
+
+The traced run loads jgl, ifc23, binkw32, mss32 and sound.dll from the game,
+and Wine's DirectSound, DirectInput and GDI+. It creates six windows, sets
+the display mode once and ends in a PeekMessage loop with TranslateMessage,
+DispatchMessage and PostMessage calls: the game's main loop. ddraw.dll is not
+loaded in that time. Remaining err: lines, each once:
+- the game's IFC23.dll (Immersion force feedback) asks for COM class
+  {5959df60-2911-11d1-b049-0020af30269a}, which is not registered;
+- mmdevapi has no audio driver; Miles and sound.dll unload (sound output is
+  out of scope);
+- comdlg32 finds no Common-Controls 6.0 manifest for its activation context;
+- win32u reports no Vulkan; the explorer.exe /desktop launch is disabled.
+
+Earlier rounds crashed in Civ3's own error reporter (0x5cdb06) after its
+Install_Path lookup of SOFTWARE\Infogrames\Civ3PTW failed. The trace on
+fe2cc10 showed native NtOpenKeyEx with KEY_WOW64_32KEY from this x64 host
+returning not found while `reg query /reg:32` finds the key. Guest key opens
+and creates that do not select the 64-bit view now use RegOpenKeyExW and
+RegCreateKeyExW with KEY_WOW64_32KEY.
+
+Controls on the same candidate
+
+| Control | Native | Wine | Result |
+|---|---:|---:|---|
+| registry_view32: default, KEY_WOW64_32KEY and KEY_WOW64_64KEY ProgramFilesDir | 1 | 3 | All pass; 32-bit views read C:\Program Files (x86), the 64-bit view C:\Program Files |
+| gui_controls32, seven modes | 7 | 14 | Wine all pass; native cursor fails in session 0 only (error 1459) |
+| focused suite, 35 fixture children | | | No failures, crashes or timeouts |
+| cross (29), unmodified (16) | | | No failures, crashes or timeouts |
+
+Raw evidence: evidence/gui-validation/validation-40c68b9/vm-results/
+civ3-luna6-40c68b9-20261029-104840. The path trace is in
+evidence/gui-validation/validation-fe2cc10.

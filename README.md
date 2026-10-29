@@ -122,6 +122,7 @@ removing the two demonstrated lock hazards. CET and arbitrary termination
 during other adapter calls remain open. The interactive native-thread/window
 fixture passes in Luna's logged-on session. Wine's GUI stack passes the x86
 window, message, timer, cursor, DC, focus, cross-thread and text controls in
-sessions 0 and 1; see [the GUI report](docs/validation-gui-c56a5df.txt). The
-Civ3 smoke launch is active work. Universal unmodified application
-compatibility is not established.
+sessions 0 and 1; see [the GUI report](docs/validation-gui-c56a5df.txt).
+Civ3Conquests.exe reaches its main loop headless; see
+[the Civ3 report](docs/validation-civ3-40c68b9.txt). Universal unmodified
+application compatibility is not established.
