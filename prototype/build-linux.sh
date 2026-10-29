@@ -30,11 +30,6 @@ source prototype/build-wine-sockets.sh
 perl -0777 -ne '/(^static inline void set_async_iosb\([^\n]*\)\n\{.*?^\})/ms or die "Wine async IOSB helper missing";print "$1\n";' \
   wine-11.0-source/dlls/ntdll/unix/unix_private.h > prototype/out/wine-async-iosb.inc
 install -m 644 prototype/stock-wine/*.nls prototype/out/stock-wine/
-# Wine's own fonts, found through win32u's data directory.
-if [[ -d prototype/stock-wine/fonts ]]; then
-  mkdir -p prototype/out/stock-wine/fonts
-  install -m 644 prototype/stock-wine/fonts/* prototype/out/stock-wine/fonts/
-fi
 # This pinned Wine PE retains private COFF symbols. The bootstrap calls the
 # original loader registration routine; it does not duplicate its indexes.
 "$nm32" --defined-only prototype/stock-wine/i386-windows/ntdll.dll | perl -ne '
@@ -217,7 +212,8 @@ win32u_redirects=(-DNtCreateUserProcess=probe_gui_NtCreateUserProcess -DNtOpenDi
   -DRtlGetLastWin32Error=probe_gui_RtlGetLastWin32Error -DRtlSetLastWin32Error=probe_gui_RtlSetLastWin32Error
   -DNtWaitForSingleObject=probe_NtWaitForSingleObject -DNtWaitForMultipleObjects=probe_NtWaitForMultipleObjects
   -DNtGetNlsSectionPtr=probe_NtGetNlsSectionPtr -DNtInitializeNlsFiles=probe_NtInitializeNlsFiles)
-# win32u's font engine is FreeType, loaded at run time as on Unix.
+# win32u's font engine is FreeType, loaded at run time as on Unix. The fonts
+# are Windows' own: Wine's font.c scans C:\windows\fonts.
 if [[ -n ${PROBE_FREETYPE_INCLUDE:-} ]]; then
   win32u_redirects+=(-DHAVE_FT2BUILD_H -DSONAME_LIBFREETYPE='"libfreetype-6.dll"' "-I$PROBE_FREETYPE_INCLUDE")
   mkdir -p prototype/out/stock-wine/x86_64-native

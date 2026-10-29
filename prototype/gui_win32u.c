@@ -198,9 +198,10 @@ NTSTATUS WINAPI probe_gui_NtCallbackReturn(void *ret_ptr,ULONG ret_len,NTSTATUS 
     return status;
 }
 
-/* ntdll Unix helpers used by win32u. Wine's data directory is the packaged
- * stock-wine tree, which holds Wine's fonts. File names given to FreeType
- * are the DOS paths themselves; there is no Unix library for EGL or Vulkan. */
+/* ntdll Unix helpers used by win32u. Fonts come from the Windows font
+ * directory that Wine's font.c scans first; Wine's data directory is the
+ * packaged stock-wine tree, which holds no fonts. File names given to
+ * FreeType are the DOS paths themselves. There is no EGL or Vulkan library. */
 const WCHAR *ntdll_get_build_dir(void) { return NULL; }
 const WCHAR *ntdll_get_data_dir(void)
 {
