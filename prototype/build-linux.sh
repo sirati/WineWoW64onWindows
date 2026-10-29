@@ -30,6 +30,11 @@ source prototype/build-wine-sockets.sh
 perl -0777 -ne '/(^static inline void set_async_iosb\([^\n]*\)\n\{.*?^\})/ms or die "Wine async IOSB helper missing";print "$1\n";' \
   wine-11.0-source/dlls/ntdll/unix/unix_private.h > prototype/out/wine-async-iosb.inc
 install -m 644 prototype/stock-wine/*.nls prototype/out/stock-wine/
+# Wine's own fonts, found through win32u's data directory.
+if [[ -d prototype/stock-wine/fonts ]]; then
+  mkdir -p prototype/out/stock-wine/fonts
+  install -m 644 prototype/stock-wine/fonts/* prototype/out/stock-wine/fonts/
+fi
 # This pinned Wine PE retains private COFF symbols. The bootstrap calls the
 # original loader registration routine; it does not duplicate its indexes.
 "$nm32" --defined-only prototype/stock-wine/i386-windows/ntdll.dll | perl -ne '
@@ -207,17 +212,25 @@ server_renames=(-Duser_shared_data=wine_server_user_shared_data -Dshared_session
 win32u_redirects=(-DNtCreateUserProcess=probe_gui_NtCreateUserProcess -DNtOpenDirectoryObject=probe_gui_NtOpenDirectoryObject
   -DNtOpenSection=probe_gui_NtOpenSection -DNtAddAtom=probe_gui_NtAddAtom -DNtDeleteAtom=probe_gui_NtDeleteAtom
   -DNtFindAtom=probe_gui_NtFindAtom -DNtQueryInformationAtom=probe_gui_NtQueryInformationAtom
-  -DNtOpenKeyEx=probe_gui_NtOpenKeyEx -DNtCreateKey=probe_gui_NtCreateKey -DNtClose=probe_NtClose
+  -DNtOpenKeyEx=probe_gui_NtOpenKeyEx -DNtCreateKey=probe_gui_NtCreateKey -DNtSetValueKey=probe_gui_NtSetValueKey
+  -DNtClose=probe_NtClose
   -DRtlGetLastWin32Error=probe_gui_RtlGetLastWin32Error -DRtlSetLastWin32Error=probe_gui_RtlSetLastWin32Error
   -DNtWaitForSingleObject=probe_NtWaitForSingleObject -DNtWaitForMultipleObjects=probe_NtWaitForMultipleObjects
   -DNtGetNlsSectionPtr=probe_NtGetNlsSectionPtr -DNtInitializeNlsFiles=probe_NtInitializeNlsFiles)
+# win32u's font engine is FreeType, loaded at run time as on Unix.
+if [[ -n ${PROBE_FREETYPE_INCLUDE:-} ]]; then
+  win32u_redirects+=(-DHAVE_FT2BUILD_H -DSONAME_LIBFREETYPE='"libfreetype-6.dll"' "-I$PROBE_FREETYPE_INCLUDE")
+  mkdir -p prototype/out/stock-wine/x86_64-native
+  install -m 644 "$PROBE_FREETYPE_BIN"/*.dll prototype/out/stock-wine/x86_64-native/
+fi
 gui_objects=()
 for source in wine-11.0-source/dlls/win32u/*.c wine-11.0-source/dlls/win32u/dibdrv/*.c; do
   unit=$(basename "$source" .c);dir=$(basename "$(dirname "$source")")
   # main.c holds the PE syscall stubs and syscall.c the Unix service table;
   # wow64win's table dispatches directly to these functions instead.
   [[ $unit == main || $unit == syscall ]] && continue
-  "$cc64" "${gui_flags[@]}" -DWINE_UNIX_LIB -D_WIN32U_ "${win32u_redirects[@]}" "${gui_inc[@]}" \
+  unit_flags=();[[ $unit == freetype ]] && unit_flags=(-include prototype/gui-include/probe_unix_file.h)
+  "$cc64" "${gui_flags[@]}" "${unit_flags[@]}" -DWINE_UNIX_LIB -D_WIN32U_ "${win32u_redirects[@]}" "${gui_inc[@]}" \
     -Iwine-11.0-source/dlls/win32u -c "$source" -o "prototype/out/gui/$dir-$unit.o"
   gui_objects+=("prototype/out/gui/$dir-$unit.o")
 done

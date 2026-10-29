@@ -37,6 +37,9 @@ let
       runHook postInstall
     '';
   });
+  # Wine's win32u loads FreeType as its font engine; this is the native x64
+  # build of the same library, with its MinGW dependencies.
+  freetype64 = pkgsCross.mingwW64.freetype;
   cc32 = pkgsCross.mingw32.buildPackages.gcc;
   cc64 = pkgsCross.mingwW64.buildPackages.gcc;
   bin32 = pkgsCross.mingw32.buildPackages.binutils;
@@ -66,6 +69,8 @@ in stdenv.mkDerivation {
   PROBE_LLD_LINK = "${lld}/bin/lld-link";
   PROBE_WINEBUILD = "${wine}/bin/winebuild";
   PROBE_LOADER_SOURCE_PATCHED = "1";
+  PROBE_FREETYPE_INCLUDE = "${freetype64.dev}/include";
+  PROBE_FREETYPE_BIN = "${freetype64}/bin";
   buildPhase = ''
     runHook preBuild
     mkdir wine-11.0-source
@@ -80,6 +85,7 @@ in stdenv.mkDerivation {
     python3 prototype/collect-wine-dlls.py ${wine}/lib/wine/i386-windows
     cp ${wineCxx}/lib/wine/i386-windows/*.dll prototype/stock-wine/i386-windows/
     cp ${wine}/share/wine/nls/{l_intl,locale,normnfc,sortdefault}.nls prototype/stock-wine/
+    cp -R ${wine}/share/wine/fonts prototype/stock-wine/
     bash prototype/build-linux.sh
     runHook postBuild
   '';
@@ -109,6 +115,7 @@ in stdenv.mkDerivation {
     Wine x86 CRT build: ${wineCxx}
     x86 compiler: ${cc32}
     x64 compiler: ${cc64}
+    x64 FreeType: ${freetype64}
     EOF
     runHook postInstall
   '';

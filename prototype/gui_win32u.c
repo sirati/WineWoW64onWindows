@@ -19,6 +19,7 @@
 #include "wine/server.h"
 #include "wine/debug.h"
 #include <pthread.h>
+#include <io.h>
 
 WINE_DEFAULT_DEBUG_CHANNEL(win32u);
 
@@ -29,6 +30,7 @@ extern RTL_USER_PROCESS_PARAMETERS *probe_gui_process_parameters(const RTL_USER_
 extern HANDLE probe_server_session_section(void);
 extern HKEY reg_create_ascii_key(HKEY,const char *,DWORD,DWORD *);
 extern void set_reg_ascii_value(HKEY,const char *,const char *);
+extern BOOL probe_runtime_path(WCHAR *,SIZE_T,const WCHAR *);
 
 /* win32u/syscall.c is not used: the x86 service table is wow64win's. */
 ULONG_PTR zero_bits = 0x7fffffff;
@@ -196,10 +198,42 @@ NTSTATUS WINAPI probe_gui_NtCallbackReturn(void *ret_ptr,ULONG ret_len,NTSTATUS 
     return status;
 }
 
-/* ntdll Unix helpers used by win32u. There is no Wine build or data
- * directory on this host and no Unix library for EGL or Vulkan. */
+/* ntdll Unix helpers used by win32u. Wine's data directory is the packaged
+ * stock-wine tree, which holds Wine's fonts. File names given to FreeType
+ * are the DOS paths themselves; there is no Unix library for EGL or Vulkan. */
 const WCHAR *ntdll_get_build_dir(void) { return NULL; }
-const WCHAR *ntdll_get_data_dir(void) { return NULL; }
+const WCHAR *ntdll_get_data_dir(void)
+{
+    static WCHAR dir[MAX_PATH+8];
+    WCHAR path[MAX_PATH];
+    if(!dir[0]&&probe_runtime_path(path,ARRAY_SIZE(path),L"stock-wine"))
+    { wcscpy(dir,L"\\??\\");wcscat(dir,path); }
+    return dir;
+}
+NTSTATUS ntdll_get_unix_file_name(const WCHAR *dos,char **unix_name,UINT disposition)
+{
+    ULONG length;
+    *unix_name=NULL;
+    if(!wcsncmp(dos,L"\\??\\",4))dos+=4;
+    if(disposition==FILE_OPEN&&GetFileAttributesW(dos)==INVALID_FILE_ATTRIBUTES)return STATUS_OBJECT_NAME_NOT_FOUND;
+    ULONG size=wcslen(dos)*sizeof(WCHAR);
+    if(RtlUnicodeToUTF8N(NULL,0,&length,dos,size)||!(*unix_name=malloc(length+1)))return STATUS_NO_MEMORY;
+    RtlUnicodeToUTF8N(*unix_name,length,&length,dos,size);
+    (*unix_name)[length]=0;
+    return STATUS_SUCCESS;
+}
+NTSTATUS ntdll_get_dos_file_name(const char *unix_name,WCHAR **dos,UINT disposition)
+{
+    ULONG length,size=strlen(unix_name);
+    *dos=NULL;
+    if(RtlUTF8ToUnicodeN(NULL,0,&length,unix_name,size)||!(*dos=malloc(length+5*sizeof(WCHAR))))return STATUS_NO_MEMORY;
+    wcscpy(*dos,L"\\??\\");
+    RtlUTF8ToUnicodeN(*dos+4,length,&length,unix_name,size);
+    (*dos)[4+length/sizeof(WCHAR)]=0;
+    if(disposition==FILE_OPEN&&GetFileAttributesW(*dos+4)==INVALID_FILE_ATTRIBUTES)
+    { free(*dos);*dos=NULL;return STATUS_OBJECT_NAME_NOT_FOUND; }
+    return STATUS_SUCCESS;
+}
 void ntdll_set_exception_jmp_buf(jmp_buf jmp) { (void)jmp; }
 int ntdll_wcsicmp(const WCHAR *str1,const WCHAR *str2)
 {
@@ -220,10 +254,19 @@ int ntdll_wcstoumbs(const WCHAR *src,DWORD srclen,char *dst,DWORD dstlen,BOOL st
     if(strict&&status==STATUS_SOME_NOT_MAPPED)return -1;
     return status&&status!=STATUS_SOME_NOT_MAPPED?-1:(int)len;
 }
-void *dlopen(const char *name,int flags) { (void)name;(void)flags;return NULL; }
-void *dlsym(void *handle,const char *name) { (void)handle;(void)name;return NULL; }
-int dlclose(void *handle) { (void)handle;return 0; }
-char *dlerror(void) { return (char *)"no Unix libraries"; }
+/* The only library loaded this way is FreeType, from x86_64-native. Its
+ * dependencies are found in the same directory. */
+void *dlopen(const char *name,int flags)
+{
+    WCHAR relative[MAX_PATH],path[MAX_PATH*2];
+    (void)flags;
+    if(strchr(name,'/')||strchr(name,'\\')||_snwprintf(relative,ARRAY_SIZE(relative),L"stock-wine\\x86_64-native\\%hs",name)<0||
+       !probe_runtime_path(path,ARRAY_SIZE(path),relative))return NULL;
+    return LoadLibraryExW(path,NULL,LOAD_WITH_ALTERED_SEARCH_PATH);
+}
+void *dlsym(void *handle,const char *name) { return (void *)GetProcAddress(handle,name); }
+int dlclose(void *handle) { return !FreeLibrary(handle); }
+char *dlerror(void) { return (char *)"library not found"; }
 int asprintf(char **ret,const char *format,...)
 {
     va_list args;va_start(args,format);
@@ -232,6 +275,38 @@ int asprintf(char **ret,const char *format,...)
     va_start(args,format);vsnprintf(*ret,len+1,format,args);va_end(args);
     return len;
 }
+/* File access used by win32u's FreeType font loading; see
+ * gui-include/probe_unix_file.h and gui-include/sys/mman.h. */
+struct probe_stat { unsigned long long st_dev,st_ino; long long st_size; unsigned int st_mode; };
+static int file_identity(HANDLE file,struct probe_stat *st)
+{
+    BY_HANDLE_FILE_INFORMATION info;
+    if(!GetFileInformationByHandle(file,&info))return -1;
+    st->st_dev=info.dwVolumeSerialNumber;
+    st->st_ino=((unsigned long long)info.nFileIndexHigh<<32)|info.nFileIndexLow;
+    st->st_size=((long long)info.nFileSizeHigh<<32)|info.nFileSizeLow;
+    st->st_mode=info.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY?0040000:0100000;
+    return 0;
+}
+int probe_fstat(int fd,struct probe_stat *st) { return file_identity((HANDLE)_get_osfhandle(fd),st); }
+int probe_stat(const char *path,struct probe_stat *st)
+{
+    HANDLE file=CreateFileA(path,0,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,NULL,OPEN_EXISTING,
+                            FILE_FLAG_BACKUP_SEMANTICS,NULL);
+    if(file==INVALID_HANDLE_VALUE)return -1;
+    int ret=file_identity(file,st);
+    CloseHandle(file);
+    return ret;
+}
+void *mmap(void *addr,size_t length,int protection,int flags,int fd,long long offset)
+{
+    (void)addr;(void)protection;(void)flags;
+    HANDLE mapping=CreateFileMappingW((HANDLE)_get_osfhandle(fd),NULL,PAGE_READONLY,0,0,NULL);
+    void *view=mapping?MapViewOfFile(mapping,FILE_MAP_READ,(DWORD)(offset>>32),(DWORD)offset,length):NULL;
+    if(mapping)CloseHandle(mapping);
+    return view?view:(void *)-1;
+}
+int munmap(void *addr,size_t length) { (void)length;return UnmapViewOfFile(addr)?0:-1; }
 NTSTATUS CDECL wine_server_handle_to_fd(HANDLE handle,unsigned int access,int *unix_fd,unsigned int *options)
 { (void)handle;(void)access;(void)options;*unix_fd=-1;return STATUS_NOT_SUPPORTED; }
 void CDECL wine_server_send_fd(int fd) { (void)fd; }
@@ -322,6 +397,21 @@ NTSTATUS WINAPI probe_gui_NtCreateKey(HANDLE *key,ACCESS_MASK access,const OBJEC
     WCHAR buffer[1024];UNICODE_STRING name;OBJECT_ATTRIBUTES copy;
     registry_name(attr,&copy,&name,buffer,sizeof(buffer));
     return NtCreateKey(key,access,&copy,index,class,options,disposition);
+}
+/* win32u links display keys with absolute REG_LINK targets, which the
+ * native registry would resolve outside the private tree. */
+NTSTATUS WINAPI probe_gui_NtSetValueKey(HANDLE key,const UNICODE_STRING *name,ULONG index,ULONG type,
+                                       const void *data,ULONG count)
+{
+    if(type==REG_LINK)
+    {
+        WCHAR buffer[1024];UNICODE_STRING target={count,count,(WCHAR *)data},rewritten;
+        OBJECT_ATTRIBUTES attr,copy;
+        InitializeObjectAttributes(&attr,&target,0,NULL,NULL);
+        registry_name(&attr,&copy,&rewritten,buffer,sizeof(buffer));
+        if(copy.ObjectName!=&target)return NtSetValueKey(key,name,index,type,rewritten.Buffer,rewritten.Length);
+    }
+    return NtSetValueKey(key,name,index,type,data,count);
 }
 static HANDLE create_native_key(HANDLE root,const WCHAR *path)
 {
