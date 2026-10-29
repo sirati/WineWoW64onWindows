@@ -28,7 +28,7 @@ def block(source, pattern):
     return match[0]
 
 server = {name: (wine / 'server' / (name + '.c')).read_text()
-          for name in ('fd', 'request', 'unicode', 'thread', 'token', 'mapping')}
+          for name in ('fd', 'request', 'unicode', 'thread', 'token', 'mapping', 'process')}
 
 routines = []
 # fd.c: the server main loop's timeout list.
@@ -58,6 +58,8 @@ for name in ('signal_sync', 'reset_sync'):
 token = server['token']
 for name in ('acl_is_valid', 'sd_is_valid', 'extract_security_labels', 'replace_security_labels'):
     routines.append(fn(token, name))
+# process.c: the input-idle event request used by NtUserWaitForInputIdle.
+routines.append(block(server['process'], r'^DECL_HANDLER\(get_process_idle_event\)\n\{.*?^\}'))
 (out / 'wine-gui-server-routines.inc').write_text('\n\n'.join(routines) + '\n')
 
 # mapping.c: the shared session allocator. Mapping creation and growth are
@@ -78,7 +80,8 @@ for name in ('find_free_session_block', 'find_free_session_object', 'alloc_share
 units = ('atom', 'class', 'clipboard', 'directory', 'event', 'handle', 'hook', 'object',
          'queue', 'region', 'symlink', 'user', 'window', 'winstation')
 handlers = sorted({name for unit in units
-                   for name in re.findall(r'^DECL_HANDLER\((\w+)\)', (wine / 'server' / (unit + '.c')).read_text(), re.M)})
+                   for name in re.findall(r'^DECL_HANDLER\((\w+)\)', (wine / 'server' / (unit + '.c')).read_text(), re.M)}
+                  | {'get_process_idle_event'})
 (out / 'wine-gui-request-table.inc').write_text(
     ''.join(f'DECL_HANDLER({name});\n' for name in handlers) +
     'static const req_handler req_handlers[REQ_NB_REQUESTS] =\n{\n' +
