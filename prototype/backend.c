@@ -203,18 +203,79 @@ NTSTATUS WINAPI probe_NtOpenDirectoryObject(HANDLE *directory,ACCESS_MASK access
     return status;
 }
 NTSTATUS (WINAPI *__imp_probe_NtOpenDirectoryObject)(HANDLE *,ACCESS_MASK,OBJECT_ATTRIBUTES *)=probe_NtOpenDirectoryObject;
-/* The guest is a 32-bit process: as in Windows' WoW64 layer and Wine's
- * server for 32-bit clients, opening a key without an explicit registry
- * view selects the 32-bit view (WOW6432Node). */
-static ACCESS_MASK guest_registry_view(ACCESS_MASK access)
-{ return access&(KEY_WOW64_32KEY|KEY_WOW64_64KEY)?access:access|KEY_WOW64_32KEY; }
+/* The guest is a 32-bit process and sees the 32-bit registry view
+ * (WOW6432Node), as under Windows' WoW64 layer and Wine's server. Native
+ * NtOpenKeyEx from this x64 host does not redirect for KEY_WOW64_32KEY;
+ * Windows' registry API does, including its shared-key rules. Named opens
+ * that do not select the 64-bit view are made through that API. */
+static BOOL guest_registry_view32(ACCESS_MASK access) { return !(access&KEY_WOW64_64KEY); }
+static BOOL guest_registry_path(const OBJECT_ATTRIBUTES *attr,HKEY *root,WCHAR *path,SIZE_T capacity)
+{
+    static const struct { const WCHAR *prefix;HKEY key; } roots[]=
+    { {L"\\Registry\\Machine\\",HKEY_LOCAL_MACHINE}, {L"\\Registry\\User\\",HKEY_USERS} };
+    const UNICODE_STRING *name=attr?attr->ObjectName:NULL;
+    SIZE_T length=name?name->Length/sizeof(WCHAR):0,skip=0;
+    if(!attr)return FALSE;
+    *root=attr->RootDirectory;
+    if(!*root)
+    {
+        for(unsigned i=0;i<ARRAY_SIZE(roots)&&!*root;i++)
+        {
+            SIZE_T prefix=wcslen(roots[i].prefix);
+            if(length>prefix&&!wcsnicmp(name->Buffer,roots[i].prefix,prefix)){*root=roots[i].key;skip=prefix;}
+        }
+        if(!*root)return FALSE;
+    }
+    if(length-skip>=capacity)return FALSE;
+    if(length)memcpy(path,name->Buffer+skip,(length-skip)*sizeof(WCHAR));
+    path[length-skip]=0;
+    return TRUE;
+}
+static NTSTATUS registry_status(LSTATUS error)
+{
+    switch(error)
+    {
+    case ERROR_SUCCESS: return STATUS_SUCCESS;
+    case ERROR_FILE_NOT_FOUND: return STATUS_OBJECT_NAME_NOT_FOUND;
+    case ERROR_PATH_NOT_FOUND: return STATUS_OBJECT_PATH_NOT_FOUND;
+    case ERROR_ACCESS_DENIED: return STATUS_ACCESS_DENIED;
+    case ERROR_INVALID_HANDLE: return STATUS_INVALID_HANDLE;
+    case ERROR_ALREADY_EXISTS: return STATUS_OBJECT_NAME_COLLISION;
+    case ERROR_BAD_PATHNAME: return STATUS_OBJECT_PATH_SYNTAX_BAD;
+    case ERROR_INVALID_PARAMETER: return STATUS_INVALID_PARAMETER;
+    case ERROR_NOT_ENOUGH_MEMORY: case ERROR_OUTOFMEMORY: return STATUS_NO_MEMORY;
+    case ERROR_KEY_DELETED: return STATUS_KEY_DELETED;
+    case ERROR_CHILD_MUST_BE_VOLATILE: return STATUS_CHILD_MUST_BE_VOLATILE;
+    default: return STATUS_UNSUCCESSFUL;
+    }
+}
+NTSTATUS WINAPI probe_NtOpenKeyEx(HANDLE *key,ACCESS_MASK access,OBJECT_ATTRIBUTES *attributes,ULONG options)
+{
+    WCHAR path[1024];HKEY root,result=NULL;
+    if(!guest_registry_view32(access)||!guest_registry_path(attributes,&root,path,ARRAY_SIZE(path)))
+        return NtOpenKeyEx(key,access,attributes,options);
+    if(attributes->Attributes&OBJ_OPENLINK)options|=REG_OPTION_OPEN_LINK;
+    NTSTATUS status=registry_status(RegOpenKeyExW(root,path,options&REG_OPTION_OPEN_LINK,access|KEY_WOW64_32KEY,&result));
+    *key=status?NULL:result;
+    return status;
+}
+NTSTATUS WINAPI probe_NtOpenKey(HANDLE *key,ACCESS_MASK access,OBJECT_ATTRIBUTES *attributes)
+{ return probe_NtOpenKeyEx(key,access,attributes,0); }
 NTSTATUS WINAPI probe_NtCreateKey(HANDLE *key,ACCESS_MASK access,OBJECT_ATTRIBUTES *attributes,ULONG index,
                                 UNICODE_STRING *class,ULONG options,ULONG *disposition)
-{ return NtCreateKey(key,guest_registry_view(access),attributes,index,class,options,disposition); }
-NTSTATUS WINAPI probe_NtOpenKey(HANDLE *key,ACCESS_MASK access,OBJECT_ATTRIBUTES *attributes)
-{ return NtOpenKey(key,guest_registry_view(access),attributes); }
-NTSTATUS WINAPI probe_NtOpenKeyEx(HANDLE *key,ACCESS_MASK access,OBJECT_ATTRIBUTES *attributes,ULONG options)
-{ return NtOpenKeyEx(key,guest_registry_view(access),attributes,options); }
+{
+    WCHAR path[1024],class_name[256];HKEY root,result=NULL;DWORD created=0;
+    if(!guest_registry_view32(access)||!guest_registry_path(attributes,&root,path,ARRAY_SIZE(path))||
+       attributes->SecurityDescriptor||(class&&class->Length>=sizeof(class_name)))
+        return NtCreateKey(key,access,attributes,index,class,options,disposition);
+    if(class&&class->Length){memcpy(class_name,class->Buffer,class->Length);class_name[class->Length/sizeof(WCHAR)]=0;}
+    if(attributes->Attributes&OBJ_OPENLINK)options|=REG_OPTION_OPEN_LINK;
+    NTSTATUS status=registry_status(RegCreateKeyExW(root,path,0,class&&class->Length?class_name:NULL,options,
+                                                    access|KEY_WOW64_32KEY,NULL,&result,&created));
+    *key=status?NULL:result;
+    if(!status&&disposition)*disposition=created;
+    return status;
+}
 NTSTATUS (WINAPI *__imp_probe_NtCreateKey)(HANDLE *,ACCESS_MASK,OBJECT_ATTRIBUTES *,ULONG,UNICODE_STRING *,ULONG,ULONG *)=probe_NtCreateKey;
 NTSTATUS (WINAPI *__imp_probe_NtOpenKey)(HANDLE *,ACCESS_MASK,OBJECT_ATTRIBUTES *)=probe_NtOpenKey;
 NTSTATUS (WINAPI *__imp_probe_NtOpenKeyEx)(HANDLE *,ACCESS_MASK,OBJECT_ATTRIBUTES *,ULONG)=probe_NtOpenKeyEx;
