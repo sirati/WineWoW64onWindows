@@ -1,0 +1,14 @@
+--- a/dlls/win32u/driver.c	2026-10-29 10:25:35.908162713 +0100
++++ b/dlls/win32u/driver.c	2026-10-29 10:25:36.002244741 +0100
+@@ -816,6 +816,11 @@
+ 
+ static void nulldrv_SetDesktopWindow( HWND hwnd )
+ {
++#ifdef PROBE_NATIVE_WINDOWS
++    /* No explorer runs on this host; size the desktop as a display driver would. */
++    extern void probe_gui_null_desktop( HWND hwnd );
++    probe_gui_null_desktop( hwnd );
++#endif
+ }
+ 
+ static void nulldrv_ActivateWindow( HWND hwnd, HWND previous )

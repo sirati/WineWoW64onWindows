@@ -449,6 +449,37 @@ static void init_registry(void)
     RtlFreeUnicodeString(&user);
 }
 
+/* Wine's null display driver relies on explorer.exe /desktop to size the
+ * desktop window and reset the cursor clip. Without explorer, apply the
+ * uninitialized-desktop step of Wine's X11DRV_SetDesktopWindow and the
+ * ClipCursor(NULL) that explorer's manage_desktop issues. */
+void probe_gui_null_desktop(HWND hwnd)
+{
+    unsigned int width,height;
+    SERVER_START_REQ( get_window_rectangles )
+    {
+        req->handle = wine_server_user_handle( hwnd );
+        req->relative = COORDS_CLIENT;
+        wine_server_call( req );
+        width  = reply->window.right;
+        height = reply->window.bottom;
+    }
+    SERVER_END_REQ;
+    if (width || height) return;
+    RECT rect = NtUserGetVirtualScreenRect( MDT_DEFAULT );
+    SERVER_START_REQ( set_window_pos )
+    {
+        req->handle        = wine_server_user_handle( hwnd );
+        req->previous      = 0;
+        req->swp_flags     = SWP_NOZORDER;
+        req->window        = wine_server_rectangle( rect );
+        req->client        = req->window;
+        wine_server_call( req );
+    }
+    SERVER_END_REQ;
+    NtUserClipCursor( NULL );
+}
+
 /* One-time setup before the first win32u service. As Wine's explorer does
  * for Graphics=null, select the null driver for the desktop with the null
  * display GUID that win32u uses when no explorer has published one. */
