@@ -116,6 +116,10 @@ done
 "$cc32" -O2 -nostdlib prototype/disk_loader32.c \
   "$($cc32 -print-file-name=crt2.o)" "$($cc32 -print-file-name=crtbegin.o)" \
   "${winlibs[@]}" "$($cc32 -print-file-name=crtend.o)" -o prototype/out/guest/disk_loader32.exe
+# Headless controls for Wine's win32u, wow64win and server GUI state.
+"$cc32" -O2 -nostdlib prototype/gui_controls32.c \
+  "$($cc32 -print-file-name=crt2.o)" "$($cc32 -print-file-name=crtbegin.o)" -lgdi32 \
+  "${winlibs[@]}" "$($cc32 -print-file-name=crtend.o)" -o prototype/out/guest/gui_controls32.exe
 "$cc32" -O2 -D_WIN32_WINNT=0x0601 -nostdlib prototype/crt32.c -lmsvcrt -lkernel32 \
   -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/crt32.exe
 "$cc32" "${guest_flags[@]}" prototype/bridge_app32.c prototype/out/liblegacy-library.a -lmsvcrt -lkernel32 \
@@ -189,6 +193,59 @@ for unit in file process registry security sync syscall system virtual; do
   "$cc64" "${flags[@]}" "${extra[@]}" "${inc[@]}" -Iwine-11.0-source/dlls/wow64 \
     -c "$unit_source" -o prototype/out/wine-$unit.o
 done
+# Wine's own GUI stack for the x86 guest: the Unix side of win32u with its
+# null display driver, wow64win's thunks and wineserver's window, message,
+# hook, class, atom and winstation state, all as native x64 host code.
+# The adapters are gui_win32u.c and gui_server.c; see extract-wine-gui.py.
+python3 prototype/extract-wine-gui.py
+mkdir -p prototype/out/gui
+gui_flags=(-O2 -g -std=gnu17 -D__WINESRC__ -DPROBE_NATIVE_WINDOWS -D__USE_MINGW_ANSI_STDIO=0 -include prototype/compat.h
+  -ffunction-sections -fdata-sections)
+gui_inc=(-Iprototype/gui-include -Iwine-11.0-source/include -Iprototype/include/wine/windows -Iprototype)
+# The server and win32u (or the host) both define these globals in Wine.
+server_renames=(-Duser_shared_data=wine_server_user_shared_data -Dshared_session=wine_server_shared_session)
+win32u_redirects=(-DNtCreateUserProcess=probe_gui_NtCreateUserProcess -DNtOpenDirectoryObject=probe_gui_NtOpenDirectoryObject
+  -DNtOpenSection=probe_gui_NtOpenSection -DNtAddAtom=probe_gui_NtAddAtom -DNtDeleteAtom=probe_gui_NtDeleteAtom
+  -DNtFindAtom=probe_gui_NtFindAtom -DNtQueryInformationAtom=probe_gui_NtQueryInformationAtom
+  -DNtOpenKeyEx=probe_gui_NtOpenKeyEx -DNtCreateKey=probe_gui_NtCreateKey -DNtClose=probe_NtClose
+  -DRtlGetLastWin32Error=probe_gui_RtlGetLastWin32Error -DRtlSetLastWin32Error=probe_gui_RtlSetLastWin32Error
+  -DNtWaitForSingleObject=probe_NtWaitForSingleObject -DNtWaitForMultipleObjects=probe_NtWaitForMultipleObjects
+  -DNtGetNlsSectionPtr=probe_NtGetNlsSectionPtr -DNtInitializeNlsFiles=probe_NtInitializeNlsFiles)
+gui_objects=()
+for source in wine-11.0-source/dlls/win32u/*.c wine-11.0-source/dlls/win32u/dibdrv/*.c; do
+  unit=$(basename "$source" .c);dir=$(basename "$(dirname "$source")")
+  # main.c holds the PE syscall stubs and syscall.c the Unix service table;
+  # wow64win's table dispatches directly to these functions instead.
+  [[ $unit == main || $unit == syscall ]] && continue
+  "$cc64" "${gui_flags[@]}" -DWINE_UNIX_LIB -D_WIN32U_ "${win32u_redirects[@]}" "${gui_inc[@]}" \
+    -Iwine-11.0-source/dlls/win32u -c "$source" -o "prototype/out/gui/$dir-$unit.o"
+  gui_objects+=("prototype/out/gui/$dir-$unit.o")
+done
+for unit in gdi user syscall; do
+  "$cc64" "${gui_flags[@]}" -DWINE_UNIX_LIB -D_WIN32U_ -DDllMain=wine_wow64win_DllMain \
+    -DNtCallbackReturn=probe_gui_NtCallbackReturn "${gui_inc[@]}" -Iwine-11.0-source/dlls/wow64win \
+    -c wine-11.0-source/dlls/wow64win/$unit.c -o prototype/out/gui/wow64win-$unit.o
+  gui_objects+=(prototype/out/gui/wow64win-$unit.o)
+done
+server_objects=()
+for unit in atom class clipboard directory event handle hook object queue region symlink user window winstation; do
+  server_objects+=(prototype/out/gui/server-$unit.o)
+  extra=();[[ $unit == handle ]] && extra=(-Dalloc_handle=wine_alloc_handle)
+  "$cc64" "${gui_flags[@]}" "${server_renames[@]}" "${extra[@]}" -Iwine-11.0-source/server "${gui_inc[@]}" \
+    -c wine-11.0-source/server/$unit.c -o prototype/out/gui/server-$unit.o
+done
+"$cc64" "${gui_flags[@]}" "${server_renames[@]}" -Iwine-11.0-source/server "${gui_inc[@]}" -c prototype/gui_server.c -o prototype/out/gui/gui-server.o
+# wineserver is a separate process in Wine and shares many global names with
+# win32u. Link the server into one object exporting only its adapter API.
+"${cc64%gcc}ld" -r "${server_objects[@]}" prototype/out/gui/gui-server.o -o prototype/out/gui/partial-server.o
+printf '%s\n' wine_server_call probe_server_init probe_server_thread_exit probe_server_close probe_server_handle \
+  probe_server_session_section > prototype/out/gui/server-exports.txt
+"${cc64%gcc}objcopy" --keep-global-symbols=prototype/out/gui/server-exports.txt \
+  prototype/out/gui/partial-server.o prototype/out/gui/server.o
+"$cc64" "${gui_flags[@]}" -DWINE_UNIX_LIB -D_WIN32U_ "${gui_inc[@]}" -Iwine-11.0-source/dlls/win32u \
+  -c prototype/gui_win32u.c -o prototype/out/gui/gui-win32u.o
+gui_objects+=(prototype/out/gui/server.o prototype/out/gui/gui-win32u.o)
+
 for host_variant in normal no-unixlib;do
 host_flags=();host_name=wine-host
 if [[ "$host_variant" == no-unixlib ]];then host_flags+=( -DPROBE_TEST_NO_NATIVE_UNIXLIB );host_name=wine-host-no-unixlib;fi
@@ -196,10 +253,10 @@ if [[ "$host_variant" == no-unixlib ]];then host_flags+=( -DPROBE_TEST_NO_NATIVE
   prototype/out/wine-file.o prototype/out/wine-process.o prototype/out/wine-sync.o prototype/out/wine-virtual.o \
   prototype/out/wine-registry.o \
   prototype/out/wine-system.o prototype/out/wine-security.o \
-  prototype/out/wine-close.o \
+  prototype/out/wine-close.o "${gui_objects[@]}" \
   -Wl,--gc-sections,--image-base,0x60000000 "${mitigation_flags[@]}" \
   -Wl,--subsystem,console -Wl,--entry,probe_mainCRTStartup -nostdlib -o "prototype/out/$host_name.exe" \
-  "$crt2" "$crtbegin" "${winlibs[@]}" -lntdll -lws2_32 "$crtend"
+  "$crt2" "$crtbegin" "${winlibs[@]}" -lntdll -lws2_32 -lmingwex "$crtend"
 python3 prototype/check-native-unwind.py "prototype/out/$host_name.exe"
 done
 

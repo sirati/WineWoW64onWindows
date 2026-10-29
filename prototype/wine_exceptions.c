@@ -2,6 +2,7 @@
  * The guest dispatcher and C++ handlers remain in the original Wine DLLs. */
 #include <stdio.h>
 #include <setjmp.h>
+#include <malloc.h>
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
 #include <windows.h>
@@ -316,6 +317,83 @@ void WINAPI Wow64ApcRoutine(ULONG_PTR a,ULONG_PTR b,ULONG_PTR c,CONTEXT *unused)
 }
 void probe_apc_init(void *dispatcher)
 { init_block.pKiUserApcDispatcher=(ULONG_PTR)dispatcher; }
+/* Wine's Wow64KiUserCallbackDispatcher runs the x86 KiUserCallbackDispatcher
+ * until the guest's NtCallbackReturn longjmps back to it. The native unwinder
+ * cannot cross the compatibility-mode transition, so the same x86 frame runs
+ * as a nested guest invocation; NtCallbackReturn ends it through the host
+ * return gate, as NtTerminateThread does for the current thread. */
+struct user_callback_frame
+{
+    struct user_callback_frame *prev_frame;
+    struct guest_cpu *cpu;
+    void **ret_ptr;
+    ULONG *ret_len;
+    NTSTATUS status;
+};
+static DWORD callback_slot=TLS_OUT_OF_INDEXES;
+static DWORD callback_return_gate;
+void probe_callback_init(void *dispatcher,void *return_gate)
+{
+    callback_slot=TlsAlloc();if(callback_slot==TLS_OUT_OF_INDEXES)ExitProcess(94);
+    init_block.pKiUserCallbackDispatcher=(ULONG_PTR)dispatcher;
+    callback_return_gate=PtrToUlong(return_gate);
+}
+NTSTATUS WINAPI Wow64KiUserCallbackDispatcher(ULONG id,void *args,ULONG len,void **ret_ptr,ULONG *ret_len)
+{
+    struct guest_cpu *parent=probe_current_cpu();
+    TEB32 *teb32=probe_current_teb32();
+    struct user_callback_frame frame={TlsGetValue(callback_slot),NULL,ret_ptr,ret_len,STATUS_SUCCESS};
+    if(!parent||!teb32||!init_block.pKiUserCallbackDispatcher)return STATUS_NOT_SUPPORTED;
+    ULONG teb_frame=teb32->Tib.ExceptionList;
+    /* stack layout when calling 32-bit KiUserCallbackDispatcher */
+    struct callback_stack_layout32
+    {
+        ULONG             eip;           /* 000 */
+        ULONG             id;            /* 004 */
+        ULONG             args;          /* 008 */
+        ULONG             len;           /* 00c */
+        ULONG             unk[2];        /* 010 */
+        ULONG             esp;           /* 018 */
+        BYTE              args_data[0];  /* 01c */
+    } *stack;
+    C_ASSERT( sizeof(struct callback_stack_layout32) == 0x1c );
+    /* The CPU area holds an XSAVE frame, which requires 64-byte alignment. */
+    struct guest_cpu *nested=_aligned_malloc(sizeof(*nested),64);
+    if(!nested)return STATUS_NO_MEMORY;
+    *nested=*parent;
+    stack=ULongToPtr((parent->ctx.Esp-offsetof(struct callback_stack_layout32,args_data[len]))&~15);
+    stack->eip=parent->ctx.Eip;
+    stack->id=id;
+    stack->args=PtrToUlong(stack->args_data);
+    stack->len=len;
+    stack->esp=parent->ctx.Esp;
+    memcpy(stack->args_data,args,len);
+    nested->flags=0;nested->ctx.ContextFlags=CONTEXT_I386_FULL;
+    nested->ctx.Esp=PtrToUlong(stack);
+    nested->ctx.Eip=init_block.pKiUserCallbackDispatcher;
+    *ret_ptr=NULL;*ret_len=0;
+    frame.cpu=nested;
+    TlsSetValue(callback_slot,&frame);
+    probe_run32(&nested->ctx);
+    TlsSetValue(callback_slot,frame.prev_frame);
+    teb32->Tib.ExceptionList=teb_frame;
+    _aligned_free(nested);
+    return frame.status;
+}
+NTSTATUS WINAPI wow64_NtCallbackReturn(UINT *args)
+{
+    void *ret_ptr=get_ptr(&args);
+    ULONG ret_len=get_ulong(&args);
+    NTSTATUS status=get_ulong(&args);
+    struct user_callback_frame *frame=callback_slot==TLS_OUT_OF_INDEXES?NULL:TlsGetValue(callback_slot);
+    if(!frame||frame->cpu!=probe_current_cpu())return STATUS_NO_CALLBACK_ACTIVE;
+    *frame->ret_ptr=ret_ptr;
+    *frame->ret_len=ret_len;
+    frame->status=status;
+    frame->cpu->ctx.Eip=callback_return_gate;
+    frame->cpu->flags|=WOW64_CPURESERVED_FLAG_RESET_STATE;
+    return status;
+}
 void probe_exception_thread_cleanup(void)
 {
     if(state_slot==TLS_OUT_OF_INDEXES)return;

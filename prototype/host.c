@@ -35,6 +35,11 @@ extern BOOL probe_dispatch_guest_exception(EXCEPTION_POINTERS *);
 extern BOOL probe_handle_syscall_trap(EXCEPTION_POINTERS *);
 extern void probe_exception_thread_cleanup(void);
 extern LONG CALLBACK probe_vectored_entry(EXCEPTION_POINTERS *);
+extern void probe_callback_init(void *,void *);
+extern BOOL probe_gui_attach_teb(TEB32 *);
+extern void probe_gui_detach_teb(TEB32 *);
+extern void probe_gui_process_init(const PEB32 *);
+extern void probe_server_thread_exit(DWORD);
 extern unsigned long probe_fs_repairs;
 struct guest_module { const char *name; BYTE *base; IMAGE_NT_HEADERS32 *nt; WCHAR path[1024]; BOOL imports_done; };
 static struct guest_module mods[128];
@@ -630,6 +635,9 @@ static void init_guest_teb(BYTE *image)
     teb32->ThreadLocalStoragePointer=0;
     *(DWORD *)(guest_teb+0x30)=(DWORD)(uintptr_t)guest_peb;
     *(DWORD *)(guest_peb+0x08)=(DWORD)(uintptr_t)image;
+    /* Wine's 64-bit TEB/PEB for win32u, reached through GdiBatchCount. It
+     * exists before Wine's x86 locale_init stores the code pages in it. */
+    if(!probe_gui_attach_teb(teb32))fail("Wine GUI thread data");
     /* Native and Wine heaps have different layouts. Initialize Wine's heap
      * below once its PE code and syscall gates are executable. */
     *(DWORD *)(guest_peb+0x64)=GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
@@ -816,6 +824,8 @@ struct guest_thread_job {
 static void free_guest_thread_storage(void *opaque)
 {
     struct guest_thread_job *job=opaque;
+    /* The native thread has ended; remove its Wine server GUI state. */
+    if(job->id)probe_server_thread_exit(job->id);
     if(job->wait)CloseThreadpoolWait(job->wait);
     if(job->record)
         HeapFree(GetProcessHeap(),0,probe_thread_take_exception_state(job->record));
@@ -836,7 +846,7 @@ static void free_guest_thread_storage(void *opaque)
         if(s->teb==(TEB32 *)job->teb)s->teb=NULL;
     }
     ReleaseSRWLockExclusive(&stack_lock);
-    if(job->teb)VirtualFree(job->teb,0,MEM_RELEASE);
+    if(job->teb){probe_gui_detach_teb((TEB32 *)job->teb);VirtualFree(job->teb,0,MEM_RELEASE);}
     VirtualFree(job,0,MEM_RELEASE);
 }
 static void free_guest_thread(struct guest_thread_job *job)
@@ -896,6 +906,9 @@ static struct guest_thread_job *allocate_guest_thread(DWORD entry,DWORD param,SI
     ((TEB32 *)teb)->ThreadLocalStoragePointer=0;((TEB32 *)teb)->FlsSlots=0;
     ((TEB32 *)teb)->LastErrorValue=0;((TEB32 *)teb)->DeallocationStack=(DWORD)(ULONG_PTR)stack;
     ((TEB32 *)teb)->SkipThreadAttach=(flags&THREAD_CREATE_FLAGS_SKIP_THREAD_ATTACH)!=0;
+    /* The copied first page names the parent's GUI TEB; use this thread's. */
+    ((TEB32 *)teb)->GdiBatchCount=0;
+    if(!probe_gui_attach_teb((TEB32 *)teb)){free_guest_thread(job);return NULL;}
     job->wine_lifecycle=wine_thread_start!=NULL;
     struct guest_cpu *cpu=&job->cpu;cpu->guest_fs_base=(uintptr_t)teb;probe_cpu_prepare(cpu);
     cpu->context_state=PROBE_CONTEXT_EXCEPTION;
@@ -1197,6 +1210,7 @@ int main(int argc,char **argv)
     }
     if(wine_components)probe_exception_init(guest_export(nt,"KiUserExceptionDispatcher",0),guest_export(nt,"KiRaiseUserExceptionDispatcher",0),ss);
     if(wine_components)probe_apc_init(guest_export(nt,"KiUserApcDispatcher",0));
+    if(wine_components)probe_callback_init(guest_export(nt,"KiUserCallbackDispatcher",0),&gate[2]);
     *(DWORD *)guest_export(nt,"__wine_syscall_dispatcher",0)=(DWORD)(uintptr_t)&gate[0];
     { void *u=guest_export(nt,"__wine_unix_call_dispatcher",0); if(u) *(DWORD *)(uintptr_t)u=(DWORD)(uintptr_t)&gate[1];
       void *h=guest_export(nt,"__wine_unixlib_handle",0); if(h) *(uint64_t *)(uintptr_t)h=wine_components?BRIDGE_NTDLL_UNIX_HANDLE:(uint64_t)(uintptr_t)table; }
@@ -1250,6 +1264,7 @@ int main(int argc,char **argv)
         }
         DWORD params_status=call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeInitProcessParameters",0),&gate[2],NULL,0);
         printf("WINE_PROCESS_PARAMETERS status=%08lx\n",params_status);if(params_status)fail("Wine process parameters initialization");
+        probe_gui_process_init((PEB32 *)guest_peb);
         DWORD import_status=call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeFixupImports",0),&gate[2],NULL,0);
         printf("WINE_IMPORTS status=%08lx\n",import_status);if(import_status)fail("Wine application imports");
         wine_thread_attach=guest_export(bootstrap,"ProbeInitThread",0);

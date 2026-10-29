@@ -1,0 +1,34 @@
+--- a/server/handle.h	2026-10-29 08:31:54.770775664 +0100
++++ b/server/handle.h	2026-10-29 08:31:54.787197954 +0100
+@@ -26,6 +26,15 @@
+ #include "wine/server_protocol.h"
+ 
+ struct process;
++
++#ifdef PROBE_NATIVE_WINDOWS
++/* The in-process server's handles share the client with native kernel
++ * handles. Keep them in a range that native handle tables do not reach. */
++#define PROBE_SERVER_HANDLE_BASE  0x40000000u
++#define PROBE_SERVER_HANDLE_LIMIT 0x50000000u
++#else
++#define PROBE_SERVER_HANDLE_BASE  0u
++#endif
+ struct object_ops;
+ struct namespace;
+ struct unicode_str;
+--- a/server/handle.c	2026-10-29 08:31:54.770749133 +0100
++++ b/server/handle.c	2026-10-29 08:31:54.794447587 +0100
+@@ -72,11 +72,11 @@
+ /* handles are a multiple of 4 under NT; handle 0 is not used */
+ static inline obj_handle_t index_to_handle( int index )
+ {
+-    return (obj_handle_t)((index + 1) << 2);
++    return (obj_handle_t)(PROBE_SERVER_HANDLE_BASE + ((index + 1) << 2));
+ }
+ static inline int handle_to_index( obj_handle_t handle )
+ {
+-    return (handle >> 2) - 1;
++    return ((handle - PROBE_SERVER_HANDLE_BASE) >> 2) - 1;
+ }
+ 
+ /* global handle conversion */

@@ -73,6 +73,7 @@ in stdenv.mkDerivation {
     patch -d wine-11.0-source -p1 < ${../patches/0002-port-extracted-sources.patch}
     patch -d wine-11.0-source -p1 < ${../patches/0005-hypervisor-shared-page.patch}
     patch -d wine-11.0-source -p1 < ${../patches/0007-thread-group-affinity-conversion.patch}
+    patch -d wine-11.0-source -p1 < ${../patches/0009-inprocess-server-handle-range.patch}
     mkdir -p prototype/include prototype/stock-wine/i386-windows
     cp -R ${wine}/include/wine prototype/include/
     mkdir -p evidence

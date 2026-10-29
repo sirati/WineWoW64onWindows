@@ -311,6 +311,27 @@ extern NTSTATUS WINAPI wow64_NtGetWriteWatch(UINT *),wow64_NtResetWriteWatch(UIN
 extern NTSTATUS WINAPI wow64_NtCreateDebugObject(UINT *),wow64_NtSetInformationDebugObject(UINT *);
 extern NTSTATUS WINAPI wow64_NtDebugActiveProcess(UINT *),wow64_NtRemoveProcessDebug(UINT *);
 extern NTSTATUS WINAPI wow64_NtDebugContinue(UINT *),wow64_NtWaitForDebugEvent(UINT *);
+/* Wine's atom thunks, served by the in-process server's global atom table
+ * exactly as Wine's ntdll does, so guest and win32u atoms agree. */
+WINE_DEFAULT_DEBUG_CHANNEL(wow);
+#define NtAddAtom probe_gui_NtAddAtom
+#define NtDeleteAtom probe_gui_NtDeleteAtom
+#define NtFindAtom probe_gui_NtFindAtom
+#define NtQueryInformationAtom probe_gui_NtQueryInformationAtom
+extern NTSTATUS WINAPI NtAddAtom(const WCHAR *,ULONG,RTL_ATOM *),NtDeleteAtom(RTL_ATOM);
+extern NTSTATUS WINAPI NtFindAtom(const WCHAR *,ULONG,RTL_ATOM *);
+extern NTSTATUS WINAPI NtQueryInformationAtom(RTL_ATOM,ATOM_INFORMATION_CLASS,void *,ULONG,ULONG *);
+#include "out/wine-gui-atom-thunks.inc"
+#undef NtAddAtom
+#undef NtDeleteAtom
+#undef NtFindAtom
+#undef NtQueryInformationAtom
+#include "out/wine-gui-process-params.inc"
+RTL_USER_PROCESS_PARAMETERS *probe_gui_process_parameters(const RTL_USER_PROCESS_PARAMETERS32 *params32)
+{
+    RTL_USER_PROCESS_PARAMETERS *params;
+    return process_params_32to64(&params,(RTL_USER_PROCESS_PARAMETERS32 *)params32);
+}
 static NTSTATUS WINAPI dispatch_nt(UINT *a)
 {
     NTSTATUS status;
@@ -387,6 +408,10 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
     case 0x00d4: status=wow64_NtRemoveProcessDebug(a);break;
     case 0x008b: status=wow64_NtDebugContinue(a);break;
     case 0x0100: status=wow64_NtWaitForDebugEvent(a);break;
+    case 0x0047: status=wow64_NtAddAtom(a);break;
+    case 0x008c: status=wow64_NtDeleteAtom(a);break;
+    case 0x0014: status=wow64_NtFindAtom(a);break;
+    case 0x00bf: status=wow64_NtQueryInformationAtom(a);break;
     case 0x008e: status=wow64_NtDeleteKey(a);break;
     case 0x008f: status=wow64_NtDeleteValueKey(a);break;
     case 0x00cb: status=wow64_NtQuerySystemInformationEx(a);break;
@@ -487,6 +512,16 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
     }
     return status;
 }
+/* Table 1 is Wine's win32u: wow64win's original x86 thunks call Wine's own
+ * Unix-side win32u in this host, never the native Windows win32u. */
+extern const SYSTEM_SERVICE_TABLE sdwhwin32;
+extern void probe_gui_init(void);
+static NTSTATUS WINAPI dispatch_win32u(UINT *a)
+{
+    UINT n=((struct temp_frame *)TlsGetValue(temp_slot))->service&0xfff;
+    if(probe_trace) diagnostic("WIN32U_CALL %x\n",n);
+    return ((NTSTATUS (WINAPI *)(UINT *))sdwhwin32.ServiceTable[n])(a);
+}
 extern NTSTATUS wow64_syscall(UINT *,ULONG_PTR);
 #include "out/wine-service-limits.inc"
 NTSTATUS WINAPI Wow64SystemServiceEx(UINT n,UINT *a)
@@ -505,12 +540,14 @@ NTSTATUS WINAPI Wow64SystemServiceEx(UINT n,UINT *a)
     InterlockedIncrement((LONG *)&probe_nt_calls);
     /* Wine's original SEH wrapper converts faults while marshalling guest
      * arguments into status returns before temporary storage is released. */
-    NTSTATUS status=wow64_syscall(a,(ULONG_PTR)dispatch_nt);
+    if(n>>12==1)probe_gui_init();
+    NTSTATUS status=wow64_syscall(a,(ULONG_PTR)(n>>12==1?dispatch_win32u:dispatch_nt));
     while(frame.count) free(frame.blocks[--frame.count]);
     TlsSetValue(temp_slot,previous);
     if(cpu)cpu->context_state=previous_context_state==PROBE_CONTEXT_SERVICE?PROBE_CONTEXT_SERVICE:0;
     if(probe_trace) diagnostic("NT_RETURN %x status=%08lx\n",n,(unsigned long)status);
-    if(status<0) diagnostic("NT service %x returned %08lx\n",n,(unsigned long)status);
+    /* win32u services return their own result types, not NTSTATUS. */
+    if(status<0&&!(n>>12)) diagnostic("NT service %x returned %08lx\n",n,(unsigned long)status);
     /* Reload SS before Wine jumps back to compatibility mode. This fixed
      * repeatable guest RET faults after native calls on the tested Windows VM. */
     __asm__ __volatile__("movw %%ss,%%ax; movw %%ax,%%ss":::"ax","memory");
@@ -557,7 +594,35 @@ NTSTATUS WINAPI probe_library_dispatch(uint64_t handle,unsigned int n,void *a)
     __asm__ __volatile__("movw %%ss,%%ax; movw %%ax,%%ss":::"ax","memory");
     return status;
 }
-unsigned char __cdecl __wine_dbg_get_channel_flags(struct __wine_debug_channel *ch) { (void)ch; return 0; }
+/* Debug channels of the Wine code compiled into this host stay disabled
+ * unless PROBE_WINE_DEBUG lists classes to print, such as "err,fixme". */
+static LONG debug_classes=-1;
+unsigned char __cdecl __wine_dbg_get_channel_flags(struct __wine_debug_channel *ch)
+{
+    (void)ch;
+    if(debug_classes<0)
+    {
+        static const char *const names[]={"fixme","err","warn","trace"};
+        char value[64];LONG classes=0;
+        DWORD length=GetEnvironmentVariableA("PROBE_WINE_DEBUG",value,sizeof(value));
+        if(length&&length<sizeof(value))
+            for(unsigned i=0;i<ARRAY_SIZE(names);i++)if(strstr(value,names[i]))classes|=1<<i;
+        InterlockedExchange(&debug_classes,classes);
+    }
+    return (unsigned char)debug_classes;
+}
 int __cdecl __wine_dbg_header(enum __wine_debug_class c,struct __wine_debug_channel *ch,const char *f)
-{ (void)c;(void)ch;(void)f; return -1; }
-int __cdecl __wine_dbg_output(const char *s) { return fputs(s,stderr); }
+{
+    static const char *const names[]={"fixme","err","warn","trace"};
+    if(c>__WINE_DBCL_TRACE||!(__wine_dbg_get_channel_flags(ch)&(1<<c)))return -1;
+    diagnostic("%04lx:%s:%.15s:%s ",GetCurrentThreadId(),names[c],ch->name,f);
+    return 0;
+}
+int __cdecl __wine_dbg_output(const char *s) { diagnostic("%s",s);return strlen(s); }
+const char * __cdecl __wine_dbg_strdup(const char *str)
+{
+    static char buffers[32][1024];static LONG next;
+    char *ret=buffers[InterlockedIncrement(&next)&31];
+    lstrcpynA(ret,str,sizeof(buffers[0]));
+    return ret;
+}

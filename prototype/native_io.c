@@ -192,9 +192,11 @@ NTSTATUS WINAPI probe_NtWaitForMultipleObjects(ULONG count,const HANDLE *handles
 }
 static NTSTATUS WINAPI close_native_handle(UINT *arguments)
 {
-    extern BOOL probe_socket_close(HANDLE,NTSTATUS *);
+    extern BOOL probe_socket_close(HANDLE,NTSTATUS *),probe_server_close(HANDLE,NTSTATUS *);
     HANDLE handle=*(HANDLE *)arguments;
     NTSTATUS status;
+    /* Window station and desktop handles belong to the in-process server. */
+    if(probe_server_close(handle,&status))return status;
     if(!probe_socket_close(handle,&status))status=NtClose(handle);
     return status;
 }
