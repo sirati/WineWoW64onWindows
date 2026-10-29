@@ -30,11 +30,18 @@ Wine installation, prebuilt DLL or absolute developer store path is an input.
 The Linux Wine build supplies build tools and PE components. Native x64
 unixlib DLLs are loaded from `x86_64-native` beside the x86 builtin DLLs;
 the loader follows Wine's builtin/unixlib search and cache rules. The Civ3
-renderer supplies its own x86_64-native unixlib. Wine's GUI unix side is
-intended to run with the existing null display driver, without routing guest
-user32 or gdi32 calls to the host's win32u.
-The stock OpenGL PE also has a Wine-derived x64 null-device companion so its
-process attach can complete before the full GUI stack is enabled.
+renderer supplies its own x86_64-native unixlib.
+
+Guest user32 and gdi32 run on Wine's own GUI stack, never the host's win32u.
+The Unix side of win32u, with its null display driver, and the original
+wow64win thunks are compiled into the host. Wine's server code for windows,
+message queues, hooks, classes, atoms, window stations and the shared session
+runs in-process (`prototype/gui_server.c`); `prototype/gui_win32u.c` supplies
+the ntdll Unix interfaces win32u expects. win32u keeps its registry under
+`HKCU\Software\WineWoW64onWindows\Registry`, as a Wine prefix would, and
+FreeType renders the fonts in the Windows font directory. The stock OpenGL
+PE has a Wine-derived x64 null-device companion so its process attach
+completes.
 
 `patches/` records changes to upstream Wine. `nix/` and the cross-build scripts
 record compilation differences. The adapter sources under `prototype/` are
@@ -113,6 +120,8 @@ failures.
 The [wait-entry regression](docs/validation-5c02e38.txt) passes 100 runs after
 removing the two demonstrated lock hazards. CET and arbitrary termination
 during other adapter calls remain open. The interactive native-thread/window
-fixture passes in Luna's logged-on session; the Civ3 smoke launch and the Wine
-GUI/null-driver controls remain active work. Universal unmodified application
+fixture passes in Luna's logged-on session. Wine's GUI stack passes the x86
+window, message, timer, cursor, DC, focus, cross-thread and text controls in
+sessions 0 and 1; see [the GUI report](docs/validation-gui-c56a5df.txt). The
+Civ3 smoke launch is active work. Universal unmodified application
 compatibility is not established.

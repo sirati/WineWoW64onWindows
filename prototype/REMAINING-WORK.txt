@@ -1,11 +1,12 @@
 Remaining runtime work
 
-The Civ3 target adds two active areas to the earlier headless baseline. D/F
-native-thread/window behavior is validated in Luna's logged-on interactive
-session. The remaining Civ3 work is the first smoke launch and Wine's own
-headless GUI path: win32u, wow64win, wineserver window/message state and the
-existing null display driver. Guest user32/gdi32 must use that Wine path; the
-host's win32u is not a substitute. Sound output and ARM64 remain excluded.
+The Civ3 target extends the earlier headless baseline. D/F native-thread/
+window behavior is validated in Luna's logged-on interactive session. Guest
+user32/gdi32 use Wine's own headless GUI path: win32u with the null display
+driver, wow64win and wineserver window/message state run in-process; the
+host's win32u is not used. Its x86 controls pass (docs/validation-gui-c56a5df.txt).
+The Civ3 smoke launch is the remaining active item. Sound output and ARM64
+remain excluded.
 
 The accepted baseline and focused results are recorded in README.txt and
 the Luna evidence bundles. The demonstrated forced-termination wait races
@@ -54,6 +55,6 @@ upstream thread suite or adding a guest service. See the upstream report.
 | Less common thread information classes | Guest thread enumeration, TLS clearing, suspended creation and remote context subset pass. Other thread information classes are not mapped. | Add mappings only where an application needs them, using Wine's existing 32-bit structures. | Low to medium |
 | C++ nested returning-helper diagnostic | The focused nested-return diagnostic still fails in stock Wine 11 as well as the port. Normal catches, rethrow, destructor cleanup, worker exceptions and SEH pass. | First reproduce with a current upstream Wine build, then decide whether the test is invalid or needs a Wine exception-frame fix. | Unknown |
 | Broader unmodified applications | 7-Zip, Lua, SQLite, BusyBox and 7zr controls pass through Wine's loader. Universal application compatibility is not established. | Expand the corpus by DLL family and loader behavior. | High |
-| Civ3 Wine GUI stack | Interactive native-thread/window fixture passes in Luna session 1. Wine's own win32u, wow64win, wineserver window/message state and nulldrv controls are not yet implemented or validated. | Adopt Wine's existing win32u/wow64win/server and null display driver; add x86 controls for window/message pumping, timers, cursor position, focus and a null-driver DC. | High |
-| Civ3 smoke launch | The renderer unixlib loads and starts its native x64 thread. A Wine-derived native x64 OpenGL attach companion now lets `opengl32.dll` initialize; the smoke reaches `WINE_ATTACH` and then exits with `0xc0000005` after the unimplemented Wine GUI syscall set. Raw evidence is under `evidence/civ3-smoke-4f38371`. | Adopt Wine's wow64win thunks, win32u syscall implementation, wineserver window/message state and nulldrv, then rerun the copied game directory and record the next missing DLL or service before adding IFC23 and the Civ3 renderer DLLs. | High |
+| Civ3 Wine GUI stack | c56a5df passes native plus Wine window/Send/PostMessage, WM_TIMER/TIMERPROC, SetCursor/SetCursorPos/GetCursorPos, screen/window/DIB DC, focus, cross-thread SendMessage and FreeType text controls in sessions 0 and 1 (3 and 2 Wine runs each). Native SetCursorPos fails only in session 0 (error 1459). | Wine's win32u, wow64win and server window/message units run in-process with nulldrv. Explorer's desktop sizing and ClipCursor(NULL) are applied without explorer. D3DKMT, Vulkan and EGL are not provided; clipboard and hooks are compiled but have no dedicated controls. | Verified for tested controls |
+| Civ3 smoke launch | With the GUI stack, c56a5df reaches `WINE_ATTACH`, loads jgl, DirectSound, Miles and DirectInput, and then faults in Civ3's own error reporter (0x5cdb06) after its `Install_Path` registry lookup fails: the VM has the keys only under WOW6432Node. Raw evidence is under `evidence/gui-validation/validation-c56a5df`. | Give the guest Windows' 32-bit registry view, rerun, and record the next missing DLL or service before adding IFC23 and the Civ3 renderer DLLs. | Medium |
 | ARM64, additional NT services | Outside this target. | No work in this phase. | Excluded |

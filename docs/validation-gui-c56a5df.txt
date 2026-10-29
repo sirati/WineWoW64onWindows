@@ -1,0 +1,52 @@
+Wine GUI stack on the null display driver, 2026-10-29
+
+Candidate: c56a5df446b77a34845e5eba0eb13c631d0dcce3
+wine-host.exe SHA256:
+A1757EAF63330AF9EF9DDB0A0064AD5188E850FBDDEF75234FAECEBEDD4DD688
+gui_controls32.exe SHA256:
+D7419383842B540719A498B4AA292AD7F5763DD6B7D87C11CF09AC4856850813
+
+Guest user32 and gdi32 use Wine's own win32u, compiled with its null display
+driver into the x64 host, through the original wow64win thunks. The window,
+message queue, hook, class, atom, winstation, user handle, region and
+clipboard state is Wine's server code, run in-process. The host's win32u is
+not used. FreeType renders the fonts in the Windows font directory.
+
+Luna 6 ran the frozen candidate in a throwaway VM from the Civ3 layer image.
+The primary audited the raw JSON: actual arguments, sessions, exact markers
+and numeric exits. Every Wine row also has WINE_LOAD_APPLICATION
+status=00000000 and GUEST_EXIT code=0 ... HOST_RETURNED.
+
+| Control | Session 0 native | Session 0 Wine | Session 1 native | Session 1 Wine |
+|---|---|---|---|---|
+| window: create, SendMessage, PostMessage, thread post, WM_QUIT, destroy | pass | 3/3 | pass | 2/2 |
+| timer: window WM_TIMER and TIMERPROC callbacks | pass | 3/3 | pass | 2/2 |
+| cursor: LoadCursor/SetCursor, SetCursorPos(123,45)/GetCursorPos | fails, error 1459 | 3/3 | pass | 2/2 |
+| dc: screen and window DC, PatBlt, DIB section fill and GetPixel | pass | 3/3 | pass | 2/2 |
+| focus: two visible windows, SetActiveWindow, SetFocus | pass | 3/3 | pass | 2/2 |
+| thread: cross-thread SendMessageTimeout and PostMessage | pass | 3/3 | pass | 2/2 |
+| text: CreateFont Tahoma, metrics, extent, TextOut ink | pass | 3/3 | pass | 2/2 |
+
+The native session-0 cursor failure is the Windows rule that SetCursorPos
+needs an interactive window station (ERROR_REQUIRES_INTERACTIVE_WINDOWSTATION).
+The Wine rows are headless and pass in both sessions. Wine and native lines
+match exactly except focus, where native reports more WM_SETFOCUS/
+WM_KILLFOCUS messages (6/5 or 6/6) than Wine (3/3); the control requires at
+least two and one.
+
+Regressions on the same candidate: the focused suite (35 fixture children),
+cross (29) and unmodified (16) complete with no failures, crashes or
+timeouts. The exception suite (8) last passed on d9f3498, which already
+contained the GUI stack.
+
+Fixes found by earlier rounds of this control set:
+- d9f3498: every process after the first asserted in sysparams.c. The native
+  registry opens a link key itself only for OBJ_OPENLINK, not Wine's
+  REG_OPTION_OPEN_LINK create option (fixed in 54861b5).
+- 54861b5: GetCursorPos returned 0,0. Without explorer.exe /desktop the
+  desktop window stayed 0x0 and the server's cursor clip empty (fixed in
+  c56a5df, from X11DRV_SetDesktopWindow and explorer's ClipCursor(NULL)).
+
+Raw evidence: evidence/gui-validation/validation-c56a5df/vm-results/
+c56a5df-luna6-20261029-093543 (archives SHA256-verified on retrieval).
+Earlier rounds: validation-d9f3498 and validation-54861b5.
