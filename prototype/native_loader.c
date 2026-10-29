@@ -18,6 +18,20 @@ static const char **dll_paths;
 static char *dll_path_environment;
 static WCHAR runtime_directory[32768];
 static size_t dll_path_maxlen;
+/* Wine's PE builtins are not all paired with a Unixlib.  In the normal Unix
+ * build, a builtin which has no <arch>-unix companion simply has no Unix-call
+ * table; loading the PE itself is still valid.  Keep a bounded table for that
+ * case on Windows.  Calls made by a PE which genuinely needs a Unix backend
+ * receive Wine's normal unsupported-service status, while the loader does
+ * not turn an otherwise usable builtin into STATUS_DLL_NOT_FOUND. */
+#define OPTIONAL_UNIXLIB_ENTRIES 4096
+static NTSTATUS WINAPI optional_unixlib_call(void *args)
+{
+    (void)args;
+    return STATUS_NOT_SUPPORTED;
+}
+static void *optional_unixlib_table[OPTIONAL_UNIXLIB_ENTRIES];
+static BOOL optional_unixlib_initialized;
 typedef int sigset_t;
 #define server_enter_uninterrupted_section(lock,mask) EnterCriticalSection(lock)
 #define server_leave_uninterrupted_section(lock,mask) LeaveCriticalSection(lock)
@@ -70,6 +84,14 @@ static BOOL native_unixlib_exists(const char *path)
 }
 #include "out/wine-unixlib-paths.inc"
 
+static BOOL is_stock_wine_directory(const char *path)
+{
+    static const char suffix[] = "\\stock-wine";
+    size_t length = path ? strlen(path) : 0;
+    return length >= sizeof(suffix) - 1 &&
+           !_stricmp(path + length - (sizeof(suffix) - 1), suffix);
+}
+
 static char *environment_path(const WCHAR *name)
 {
     DWORD count=GetEnvironmentVariableW(name,NULL,0);
@@ -99,6 +121,9 @@ void probe_loader_init(void)
     build_dir=environment_path(L"WINEBUILDDIR");
     if(!dll_dir)ExitProcess(94);
     InitializeCriticalSection(&virtual_mutex);
+    for(unsigned i=0;i<ARRAY_SIZE(optional_unixlib_table);i++)
+        optional_unixlib_table[i]=(void *)optional_unixlib_call;
+    optional_unixlib_initialized=TRUE;
     set_dll_path();
     /* Wine's PE fallback finder consumes WINEDLLDIRn, which its Unix loader
      * normally publishes from this same dll_paths array.  There is no prefix
@@ -195,6 +220,7 @@ NTSTATUS probe_builtin_unixlib(void *module,ULONGLONG *handle)
     ANSI_STRING exp_name={(USHORT)length,(USHORT)(length+1),(char *)name};
     UNICODE_STRING nt_name={0};
     const void *funcs=NULL;
+    BOOL optional=FALSE;
     EnterCriticalSection(&virtual_mutex);
     struct builtin_module *builtin;
     BOOL present=FALSE;
@@ -203,20 +229,38 @@ NTSTATUS probe_builtin_unixlib(void *module,ULONGLONG *handle)
     if(!present)
     {
         add_builtin_module(module,NULL);
-        char *root=mapped_builtin_directory(module);
-        if(root)
+        char *mapped_root=mapped_builtin_directory(module);
+        if(mapped_root)
         {
-            char *directory=build_path(root,get_so_dir(IMAGE_FILE_MACHINE_AMD64));
+            char *directory=build_path(mapped_root,get_so_dir(IMAGE_FILE_MACHINE_AMD64));
             char *path=directory?build_path(directory,name):NULL;
             if(path&&native_unixlib_exists(path))load_builtin_unixlib(module,path);
-            free(path);free(directory);free(root);
+            free(path);free(directory);free(mapped_root);
         }
         if(find_native_unixlib(module,&nt_name,&exp_name)==STATUS_NO_MEMORY)
         {LeaveCriticalSection(&virtual_mutex);return STATUS_NO_MEMORY;}
     }
+    /* Re-read the mapped directory for already-cached modules as well.  Wine
+     * may query the same builtin more than once during import/attach, and
+     * the optional no-unixlib rule must remain stable across those queries. */
+    char *root=mapped_builtin_directory(module);
+    if(root)
+    {
+        optional=is_stock_wine_directory(root);
+        free(root);
+    }
     NTSTATUS status=get_builtin_unix_funcs(module,TRUE,&funcs);
     LeaveCriticalSection(&virtual_mutex);
     if(!status)*handle=(ULONG_PTR)funcs;
+    else if(status==STATUS_DLL_NOT_FOUND && optional && optional_unixlib_initialized)
+    {
+        /* Stock Wine PE builtins without a native companion remain loadable.
+         * This is the same absence represented by a NULL Unix handle in
+         * Wine's own loader; the bounded table only gives the Windows
+         * dispatcher a safe status-returning target if the PE asks for one. */
+        *handle=(ULONG_PTR)optional_unixlib_table;
+        status=STATUS_SUCCESS;
+    }
     if(status)fprintf(stderr,"MISSING_NATIVE_UNIXLIB %s status=%08lx\n",name,status);
     return status;
 }

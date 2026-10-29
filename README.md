@@ -1,8 +1,10 @@
 # Wine WoW64 on Windows
 
 This port runs Wine's x86 PE loader and WoW64 conversion code inside a native
-x64 Windows process. Linux and MinGW cross-compile the Windows runtime.
-GUI, ARM64 and additional NT services are outside the current scope.
+x64 Windows process. Linux and MinGW cross-compile the Windows runtime. The
+Civ3 target includes Wine's own headless GUI stack (win32u, wow64win,
+wineserver window/message state and the existing null display driver). ARM64,
+sound output and additional NT services remain outside the scope.
 
 Build with Nix on x86_64 Linux:
 
@@ -25,8 +27,12 @@ regenerates Wine headers and PE DLLs, then compiles the Windows host adapters
 and selected original Wine WoW64 thunks with native unwind information.
 No locally installed MinGW, copied
 Wine installation, prebuilt DLL or absolute developer store path is an input.
-The Linux Wine build supplies build tools and PE components. Its Unix runtime
-is not shipped as the Windows execution backend.
+The Linux Wine build supplies build tools and PE components. Native x64
+unixlib DLLs are loaded from `x86_64-native` beside the x86 builtin DLLs;
+the loader follows Wine's builtin/unixlib search and cache rules. The Civ3
+renderer supplies its own x86_64-native unixlib. Wine's GUI unix side is
+intended to run with the existing null display driver, without routing guest
+user32 or gdi32 calls to the host's win32u.
 
 `patches/` records changes to upstream Wine. `nix/` and the cross-build scripts
 record compilation differences. The adapter sources under `prototype/` are
@@ -104,5 +110,7 @@ context/I/O exit stress cases, canonical-address collisions and clean policy
 failures.
 The [wait-entry regression](docs/validation-5c02e38.txt) passes 100 runs after
 removing the two demonstrated lock hazards. CET and arbitrary termination
-during other adapter calls remain open. Universal unmodified application
+during other adapter calls remain open. The interactive native-thread/window
+fixture passes in Luna's logged-on session; the Civ3 smoke launch and the Wine
+GUI/null-driver controls remain active work. Universal unmodified application
 compatibility is not established.

@@ -1,5 +1,12 @@
 Remaining runtime work
 
+The Civ3 target adds two active areas to the earlier headless baseline. D/F
+native-thread/window behavior is validated in Luna's logged-on interactive
+session. The remaining Civ3 work is the first smoke launch and Wine's own
+headless GUI path: win32u, wow64win, wineserver window/message state and the
+existing null display driver. Guest user32/gdi32 must use that Wine path; the
+host's win32u is not a substitute. Sound output and ARM64 remain excluded.
+
 The accepted baseline and focused results are recorded in README.txt and
 the Luna evidence bundles. The demonstrated forced-termination wait races
 pass on 5c02e38. This table distinguishes verified controls from remaining gaps.
@@ -47,4 +54,6 @@ upstream thread suite or adding a guest service. See the upstream report.
 | Less common thread information classes | Guest thread enumeration, TLS clearing, suspended creation and remote context subset pass. Other thread information classes are not mapped. | Add mappings only where an application needs them, using Wine's existing 32-bit structures. | Low to medium |
 | C++ nested returning-helper diagnostic | The focused nested-return diagnostic still fails in stock Wine 11 as well as the port. Normal catches, rethrow, destructor cleanup, worker exceptions and SEH pass. | First reproduce with a current upstream Wine build, then decide whether the test is invalid or needs a Wine exception-frame fix. | Unknown |
 | Broader unmodified applications | 7-Zip, Lua, SQLite, BusyBox and 7zr controls pass through Wine's loader. Universal application compatibility is not established. | Expand the corpus by DLL family and loader behavior. | High |
-| GUI, ARM64, additional NT services | Out of scope by request. | No work in this phase. | Excluded |
+| Civ3 Wine GUI stack | Interactive native-thread/window fixture passes in Luna session 1. Wine's own win32u, wow64win, wineserver window/message state and nulldrv controls are not yet implemented or validated. | Adopt Wine's existing win32u/wow64win/server and null display driver; add x86 controls for window/message pumping, timers, cursor position, focus and a null-driver DC. | High |
+| Civ3 smoke launch | The renderer unixlib loads and starts its native x64 thread. The first smoke launch currently stops while importing `opengl32.dll` because the stock builtin has no native companion; the loader now preserves Wine's optional-unixlib behavior for stock PEs. | Re-run on Luna with the copied game directory and record the next missing DLL or service, then add the supplied IFC23 and Civ3 renderer DLLs. | Medium |
+| ARM64, additional NT services | Outside this target. | No work in this phase. | Excluded |

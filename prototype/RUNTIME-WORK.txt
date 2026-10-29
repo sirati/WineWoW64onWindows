@@ -2,7 +2,9 @@ Wine 11 WoW64 on native Windows, runtime integration
 
 Scope: socket-backed DLLs, APCs, IOCP/cancellation/callbacks, pending event
 and eventless I/O, guest threads/contexts, XSTATE, guarded stacks and
-mitigation compatibility. GUI, ARM64 and additional NT services are excluded.
+mitigation compatibility. The Civ3 target also includes Wine's own headless
+GUI path: win32u, wow64win, wineserver window/message state and nulldrv.
+ARM64, sound output and additional NT services are excluded.
 Linux MinGW-w64 cross-builds the implementation. Luna 6 executes VM tests
 and may create test helpers; it does not change implementation files.
 
@@ -14,6 +16,8 @@ handlers, wow64 argument conversion, ws2_32 frontend, DNS/ancillary marshalling,
 APC dispatcher and IOSB publication remain in use. Native Windows adapters
 replace host storage, AFD/file operations and thread identities. No Linux
 file I/O backend or native Windows WoW64 EXE loader is used for the guest.
+Native x64 unixlib DLLs use Wine's builtin search and cache layout; the Civ3
+renderer is loaded from `x86_64-native`.
 The bootstrap uses private COFF symbols from a pinned Wine 11 PE build.
 
 Verified milestones
