@@ -1,12 +1,15 @@
 [CmdletBinding()]
 param(
-    [string[]]$Modes=@('window','timer','cursor','dc','focus','thread','text'),
+    [string[]]$Modes=@('window','timer','cursor','dc','focus','thread','text','msgtime','opengl'),
     [int]$Repeats=3,
     [string]$ReportName='gui-controls',
     [int]$TimeoutSeconds=30,
     [string]$WineDebug='',
     [string]$GuestDebug='',
-    [switch]$SkipNative
+    [switch]$SkipNative,
+    # Another wine-host.exe in out/ (it uses out/'s runtime), e.g. an earlier
+    # candidate's host as a negative control.
+    [string]$HostExe=''
 )
 # Wine's own win32u with the null display driver, against the same EXE run
 # natively. Each Wine row must print GUI_OK for its mode, the Wine
@@ -19,7 +22,7 @@ $results=Join-Path $out 'results'
 New-Item -ItemType Directory -Force $results|Out-Null
 $utf8=New-Object System.Text.UTF8Encoding($false)
 $guest=(Resolve-Path (Join-Path $out 'guest/gui_controls32.exe')).Path
-$hostExe=(Resolve-Path (Join-Path $out 'wine-host.exe')).Path
+$hostExe=(Resolve-Path $(if($HostExe){$HostExe}else{Join-Path $out 'wine-host.exe'})).Path
 $rows=@()
 foreach($mode in $Modes) {
     if($mode -notmatch '^[a-z]+$'){throw "Invalid mode: $mode"}

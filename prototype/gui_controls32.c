@@ -1,7 +1,7 @@
 /* Headless GUI controls for Wine's win32u with its null display driver.
  * Each mode prints one exact GUI_OK line and exits 0, or prints GUI_FAIL with
  * the failing step and exits with 20+step. The same EXE is the native control.
- * Modes: window, timer, cursor, dc, focus, thread, text. */
+ * Modes: window, timer, cursor, dc, focus, thread, text, msgtime, opengl. */
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
@@ -247,6 +247,36 @@ static void thread_mode(void)
     pass(details);
 }
 
+/* A message's time is taken from the clock behind GetTickCount, so it is
+ * never newer than the tick count once the message has been retrieved. */
+static void msgtime_mode(void)
+{
+    MSG msg;char details[128];
+    int ahead=0;LONG most=0;
+    for(int i=0;i<400;i++)
+    {
+        if(!PostThreadMessageW(GetCurrentThreadId(),WM_APP+4,i,0))fail(1,"PostThreadMessageW");
+        if(!PeekMessageW(&msg,NULL,WM_APP+4,WM_APP+4,PM_REMOVE)||msg.wParam!=(WPARAM)i)fail(2,"PeekMessageW");
+        LONG age=(LONG)(GetTickCount()-msg.time);
+        if(age<0){ahead++;if(-age>most)most=-age;}
+        /* Post at different points within the clock tick. */
+        if(i%8==7)Sleep(1);
+    }
+    snprintf(details,sizeof(details),"messages=400 ahead=%d most_ms=%ld",ahead,most);
+    if(ahead)fail(3,details);
+    pass(details);
+}
+
+/* Wine's opengl32 attaches only with its x64 companion unixlib. */
+static void opengl_mode(void)
+{
+    HMODULE gl=LoadLibraryA("opengl32.dll");
+    if(!gl)fail(1,"LoadLibraryA opengl32");
+    if(!GetProcAddress(gl,"wglGetCurrentContext"))fail(2,"wglGetCurrentContext");
+    if(!FreeLibrary(gl))fail(3,"FreeLibrary");
+    pass("loaded=1");
+}
+
 int main(int argc,char **argv)
 {
     mode=argc>1?argv[1]:"";
@@ -258,6 +288,8 @@ int main(int argc,char **argv)
     if(!strcmp(mode,"focus"))focus_mode();
     if(!strcmp(mode,"thread"))thread_mode();
     if(!strcmp(mode,"text"))text_mode();
+    if(!strcmp(mode,"msgtime"))msgtime_mode();
+    if(!strcmp(mode,"opengl"))opengl_mode();
     printf("GUI_FAIL mode=%s step=0 what=usage\n",mode);
     return 2;
 }
