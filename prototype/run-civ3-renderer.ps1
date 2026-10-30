@@ -138,6 +138,8 @@ function Add-PlayStep([string]$name,$action,$settle,$shot,[hashtable]$extra=@{})
         screenshot=$shot.screenshot;client=$shot.client;text=$shot.text;bridgeErrors=$new.bridge;stderrErrors=$new.stderr;exited=$p.HasExited}
     foreach($key in $extra.Keys){$row[$key]=$extra[$key]}
     $playSteps.Add([pscustomobject]$row)
+    # Kept current so a timed-out case still has every finished step.
+    [IO.File]::WriteAllText((Join-Path $results "$ReportName-play-steps.json"),(ConvertTo-Json -InputObject @($playSteps.ToArray()) -Depth 8),$utf8)
     Note "STEP $name settled=$($settle.settled) seconds=$($settle.seconds) bridgeErrors=$($new.bridge.Count) stderrErrors=$($new.stderr.Count) exited=$($p.HasExited)"
 }
 function Invoke-ViewerClick([int]$x,[int]$y){
@@ -181,9 +183,10 @@ function Invoke-Play([datetime]$viewerSeen){
     $settle=Wait-Viewer 3 120;$shot=Save-ViewerStep '00-title'
     $target=Find-ViewerPhrase $shot.lines 'Quick Start';$closed=@()
     for($round=1;-not $target -and $round -le 3 -and -not $p.HasExited;$round++){
-        $button=Find-FirstPhrase $shot.lines @('Cancel','Close','OK','Accept','Done')
-        if(-not $button){break}
-        $closed+=Invoke-ViewerClick $button.x $button.y
+        # On its first run the bridge opens Preferences over the title menu;
+        # Escape cancels it. A labelled button is the last resort.
+        $button=if($round -eq 3){Find-FirstPhrase $shot.lines @('Cancel','Close','OK','Accept','Done')}
+        $closed+=if($button){Invoke-ViewerClick $button.x $button.y}else{Send-Keys 'Escape'}
         $settle=Wait-Viewer 3 60;$shot=Save-ViewerStep "00-title-$round"
         $target=Find-ViewerPhrase $shot.lines 'Quick Start'
     }
@@ -322,12 +325,13 @@ try {
     Note "VIEWER_WINDOW handle=$window exited=$($p.HasExited)"
     $nativeModules=if(-not $p.HasExited){Get-NativeUnixlibModules $processId}else{@()}
     Note "NATIVE_MODULES $($nativeModules -join ';')"
-    $play=$null
+    # Not $play: PowerShell names ignore case, and that is the -Play switch.
+    $playResult=$null
     if($Play -and -not $p.HasExited -and $window -ne [IntPtr]::Zero){
         $screenshots+=Save-Screenshot "$ReportName-viewer-started.png"
         $script:viewer=$window
         if(-not $viewerSeen){$viewerSeen=[DateTime]::UtcNow}
-        $play=Invoke-Play $viewerSeen
+        $playResult=Invoke-Play $viewerSeen
         if(-not $p.HasExited){$screenshots+=Save-Screenshot "$ReportName-after-play.png"}
     }
     elseif(-not $p.HasExited){
@@ -368,11 +372,11 @@ try {
         exitCode=$exitCode;exitCodeHex=('0x{0:X8}' -f $exitCode)
         killedAfterTimeout=$timedOut;closeSent=$closeSent;exitedAfterClose=$exitedAfterClose
         secondsToCloseExit=if($closedAt -and $exitedAfterClose){([DateTime]::UtcNow-$closedAt).TotalSeconds}else{$null}
-        markers=$found;screenshots=$screenshots;nativeModules=$nativeModules;play=$play;playSteps=$playSteps
+        markers=$found;screenshots=$screenshots;nativeModules=$nativeModules;play=$playResult;playSteps=$playSteps
         wineLoadMarker=($stdout -match 'WINE_LOAD_APPLICATION status=00000000')
         wineAttachMarker=($stdout -match 'WINE_ATTACH status=00000000')
         firstErrLines=$errLines;unixlibLines=$unixlibLines;steps=$steps
-        passed=if($Play){[bool]($found['adapter'] -and $found['art'] -and $found['viewer'] -and $play -and $play.turnAdvanced -and $play.saveExists -and $play.exitedThroughGame -and $exitCode -eq 0)}
+        passed=if($Play){[bool]($found['adapter'] -and $found['art'] -and $found['viewer'] -and $playResult -and $playResult.turnAdvanced -and $playResult.saveExists -and $playResult.exitedThroughGame -and $exitCode -eq 0)}
                else{[bool]($found['adapter'] -and $found['art'] -and $found['viewer'] -and $screenshots.Count -gt 0 -and $exitedAfterClose)}
         stdout=$stdout;stderr=$stderr
     }
