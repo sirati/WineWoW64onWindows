@@ -1,0 +1,22 @@
+--- a/server/request.h	2026-10-30 05:08:01.610485564 +0100
++++ b/server/request.h	2026-10-30 05:08:01.648262757 +0100
+@@ -67,9 +67,19 @@
+ extern void trace_reply( enum request req, const union generic_reply *reply );
+ 
+ /* get current tick count to return to client */
++#ifdef PROBE_NATIVE_WINDOWS
++/* Clients read the native shared tick count, which advances once per clock
++ * interrupt. Stamp with that clock so a message is never newer than the
++ * tick count its receiver sees, as Wine's shared-data update guarantees. */
++extern unsigned int probe_server_tick_count(void);
++#endif
+ static inline unsigned int get_tick_count(void)
+ {
++#ifdef PROBE_NATIVE_WINDOWS
++    return probe_server_tick_count();
++#else
+     return monotonic_counter() / 10000;
++#endif
+ }
+ 
+ /* get the request vararg data */

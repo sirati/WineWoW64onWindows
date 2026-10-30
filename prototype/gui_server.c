@@ -83,6 +83,11 @@ timeout_t monotonic_counter(void)
     if(pQueryInterruptTimePrecise){pQueryInterruptTimePrecise(&now);return now;}
     return (timeout_t)GetTickCount64()*10000;
 }
+unsigned int probe_server_tick_count(void)
+{
+    /* The clock behind the clients' GetTickCount (patches 0004 and 0011). */
+    return (unsigned int)GetTickCount64();
+}
 void set_current_time(void)
 {
     FILETIME now;
