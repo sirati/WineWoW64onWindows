@@ -884,31 +884,28 @@ static struct guest_thread_job *allocate_guest_thread(DWORD entry,DWORD param,SI
     if(!job->stack||!job->teb){free_guest_thread(job);return NULL;}
     BYTE *teb=job->teb,*stack=job->stack;
     stack_bind(stack,(TEB32 *)teb);
-    memcpy(teb,guest_teb,0x1000);
-    /* A new thread starts without the parent's current fiber or active
-     * activation frames. Wine initializes and switches its own fiber state. */
-    ((TEB32 *)teb)->Tib.FiberData=0;
-    ((TEB32 *)teb)->SameTebFlags=0;
-    memset(&((TEB32 *)teb)->ActivationContextStack,0,sizeof(((TEB32 *)teb)->ActivationContextStack));
-    ((TEB32 *)teb)->Tib.ExceptionList=~0u;
-    ((TEB32 *)teb)->StaticUnicodeString.Buffer=(DWORD)(uintptr_t)((TEB32 *)teb)->StaticUnicodeBuffer;
-    ((TEB32 *)teb)->ActivationContextStackPointer=(DWORD)(uintptr_t)&((TEB32 *)teb)->ActivationContextStack;
-    ((TEB32 *)teb)->ActivationContextStack.FrameListCache.Flink=((TEB32 *)teb)->ActivationContextStack.FrameListCache.Blink=
-        (DWORD)(uintptr_t)&((TEB32 *)teb)->ActivationContextStack.FrameListCache;
-    memset(teb+0xe10,0,64*sizeof(DWORD));
-    *(DWORD *)(teb+0xf94)=0; /* TlsExpansionSlots */
-    *(DWORD *)(teb+0x38)=0; /* CountOfOwnedCriticalSections */
-    *(DWORD *)(teb+0x04)=(DWORD)(uintptr_t)(stack+size);
-    *(DWORD *)(teb+0x08)=stack_limit(stack);
-    *(DWORD *)(teb+0x18)=(DWORD)(uintptr_t)teb;
-    *(DWORD *)(teb+0x24)=GetCurrentThreadId();
-    *(DWORD *)(teb+0x2c)=(DWORD)(uintptr_t)(teb+0xe10);
-    ((TEB32 *)teb)->ThreadLocalStoragePointer=0;((TEB32 *)teb)->FlsSlots=0;
-    ((TEB32 *)teb)->LastErrorValue=0;((TEB32 *)teb)->DeallocationStack=(DWORD)(ULONG_PTR)stack;
-    ((TEB32 *)teb)->SkipThreadAttach=(flags&THREAD_CREATE_FLAGS_SKIP_THREAD_ATTACH)!=0;
-    /* The copied first page names the parent's GUI TEB; use this thread's. */
-    ((TEB32 *)teb)->GdiBatchCount=0;
-    if(!probe_gui_attach_teb((TEB32 *)teb)){free_guest_thread(job);return NULL;}
+    /* As Wine's init_teb: a new TEB starts zeroed. Per-thread state kept in
+     * the TEB (COM's ReservedForOle, user32 client info, TLS, fibers) must
+     * not be the creating thread's. Only process-wide fields are copied. */
+    TEB32 *teb32=(TEB32 *)teb,*parent=(TEB32 *)guest_teb;
+    memset(teb,0,0x1000);
+    teb32->Peb=parent->Peb;
+    teb32->WOW32Reserved=parent->WOW32Reserved;
+    teb32->Tib.Self=(DWORD)(uintptr_t)teb;
+    teb32->Tib.ExceptionList=~0u;
+    teb32->Tib.StackBase=(DWORD)(uintptr_t)(stack+size);
+    teb32->Tib.StackLimit=stack_limit(stack);
+    teb32->DeallocationStack=(DWORD)(ULONG_PTR)stack;
+    teb32->ClientId.UniqueProcess=parent->ClientId.UniqueProcess;
+    teb32->ClientId.UniqueThread=GetCurrentThreadId();
+    teb32->RealClientId=teb32->ClientId;
+    teb32->StaticUnicodeString.Buffer=(DWORD)(uintptr_t)teb32->StaticUnicodeBuffer;
+    teb32->StaticUnicodeString.MaximumLength=sizeof(teb32->StaticUnicodeBuffer);
+    teb32->ActivationContextStackPointer=(DWORD)(uintptr_t)&teb32->ActivationContextStack;
+    teb32->ActivationContextStack.FrameListCache.Flink=teb32->ActivationContextStack.FrameListCache.Blink=
+        (DWORD)(uintptr_t)&teb32->ActivationContextStack.FrameListCache;
+    teb32->SkipThreadAttach=(flags&THREAD_CREATE_FLAGS_SKIP_THREAD_ATTACH)!=0;
+    if(!probe_gui_attach_teb(teb32)){free_guest_thread(job);return NULL;}
     job->wine_lifecycle=wine_thread_start!=NULL;
     struct guest_cpu *cpu=&job->cpu;cpu->guest_fs_base=(uintptr_t)teb;probe_cpu_prepare(cpu);
     cpu->context_state=PROBE_CONTEXT_EXCEPTION;

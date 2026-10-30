@@ -1,7 +1,8 @@
 /* Headless GUI controls for Wine's win32u with its null display driver.
  * Each mode prints one exact GUI_OK line and exits 0, or prints GUI_FAIL with
  * the failing step and exits with 20+step. The same EXE is the native control.
- * Modes: window, timer, cursor, dc, focus, thread, text, msgtime, opengl. */
+ * Modes: window, timer, cursor, dc, focus, thread, text, msgtime, opengl,
+ * comthread. */
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
@@ -277,6 +278,42 @@ static void opengl_mode(void)
     pass("loaded=1");
 }
 
+/* COM keeps per-thread data in TEB ReservedForOle. A new thread starts
+ * without its creator's and initializes COM for itself. */
+static HRESULT (WINAPI *pCoInitializeEx)(void *,DWORD);
+static void (WINAPI *pCoUninitialize)(void);
+static void *ole_data(void) { return *(void **)((BYTE *)NtCurrentTeb()+0xf80); }
+static DWORD WINAPI com_worker(void *arg)
+{
+    void **result=arg;
+    result[0]=ole_data();
+    result[1]=(void *)(LONG_PTR)pCoInitializeEx(NULL,0 /* COINIT_MULTITHREADED */);
+    result[2]=ole_data();
+    pCoUninitialize();
+    return 0;
+}
+static void comthread_mode(void)
+{
+    HMODULE ole=LoadLibraryA("ole32.dll");
+    void *result[3]={0},*main_data;char details[96];
+    if(!ole)fail(1,"LoadLibraryA ole32");
+    pCoInitializeEx=(void *)GetProcAddress(ole,"CoInitializeEx");
+    pCoUninitialize=(void *)GetProcAddress(ole,"CoUninitialize");
+    if(!pCoInitializeEx||!pCoUninitialize)fail(2,"GetProcAddress");
+    if(FAILED(pCoInitializeEx(NULL,2 /* COINIT_APARTMENTTHREADED */)))fail(3,"CoInitializeEx main");
+    if(!(main_data=ole_data()))fail(4,"main ReservedForOle");
+    HANDLE thread=CreateThread(NULL,0,com_worker,result,0,NULL);
+    if(!thread||WaitForSingleObject(thread,10000))fail(5,"worker");
+    CloseHandle(thread);
+    if(result[0])fail(6,"worker inherited ReservedForOle");
+    if(FAILED((HRESULT)(LONG_PTR)result[1]))fail(7,"CoInitializeEx worker");
+    if(!result[2]||result[2]==main_data)fail(8,"worker ReservedForOle");
+    if(ole_data()!=main_data)fail(9,"main ReservedForOle changed");
+    pCoUninitialize();
+    snprintf(details,sizeof(details),"worker_initial=0 worker_own=1 main_kept=1");
+    pass(details);
+}
+
 int main(int argc,char **argv)
 {
     mode=argc>1?argv[1]:"";
@@ -290,6 +327,7 @@ int main(int argc,char **argv)
     if(!strcmp(mode,"text"))text_mode();
     if(!strcmp(mode,"msgtime"))msgtime_mode();
     if(!strcmp(mode,"opengl"))opengl_mode();
+    if(!strcmp(mode,"comthread"))comthread_mode();
     printf("GUI_FAIL mode=%s step=0 what=usage\n",mode);
     return 2;
 }

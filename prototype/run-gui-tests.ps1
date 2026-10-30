@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string[]]$Modes=@('window','timer','cursor','dc','focus','thread','text','msgtime','opengl'),
+    [string[]]$Modes=@('window','timer','cursor','dc','focus','thread','text','msgtime','opengl','comthread'),
     [int]$Repeats=3,
     [string]$ReportName='gui-controls',
     [int]$TimeoutSeconds=30,
@@ -22,7 +22,7 @@ $results=Join-Path $out 'results'
 New-Item -ItemType Directory -Force $results|Out-Null
 $utf8=New-Object System.Text.UTF8Encoding($false)
 $guest=(Resolve-Path (Join-Path $out 'guest/gui_controls32.exe')).Path
-$hostExe=(Resolve-Path $(if($HostExe){$HostExe}else{Join-Path $out 'wine-host.exe'})).Path
+$wineHost=(Resolve-Path $(if($HostExe){$HostExe}else{Join-Path $out 'wine-host.exe'})).Path
 $rows=@()
 foreach($mode in $Modes) {
     if($mode -notmatch '^[a-z]+$'){throw "Invalid mode: $mode"}
@@ -33,7 +33,7 @@ foreach($mode in $Modes) {
         $native=$run[0];$iteration=$run[1]
         $p=New-Object System.Diagnostics.Process
         try {
-            $p.StartInfo.FileName=if($native){$guest}else{$hostExe}
+            $p.StartInfo.FileName=if($native){$guest}else{$wineHost}
             $p.StartInfo.Arguments=if($native){$mode}else{"--wine-components guest/gui_controls32.exe $mode"}
             $p.StartInfo.WorkingDirectory=$out
             $p.StartInfo.UseShellExecute=$false
