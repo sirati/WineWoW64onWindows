@@ -10,6 +10,7 @@
 #include "wine/list.h"
 #include "native_loader.h"
 extern BOOL probe_socket_builtin_unixlib(const char *,ULONGLONG *);
+extern void probe_diagnostic(const char *format,...);
 
 static CRITICAL_SECTION virtual_mutex;
 static const char *dll_dir,*build_dir,*alt_build_dir;
@@ -67,7 +68,7 @@ static void *native_dlopen(const char *path,int flags)
     /* The absolute unixlib path also supplies the directory for native
      * dependencies. No Wine guest DLL is passed to the Windows loader. */
     HMODULE module=name?LoadLibraryExW(name,NULL,LOAD_WITH_ALTERED_SEARCH_PATH):NULL;
-    if(!module)fprintf(stderr,"NATIVE_UNIXLIB_LOAD_FAILED path=%s error=%lu\n",path,GetLastError());
+    if(!module)probe_diagnostic("NATIVE_UNIXLIB_LOAD_FAILED path=%s error=%lu\n",path,GetLastError());
     free(name);return module;
 }
 #define dlopen native_dlopen
@@ -229,7 +230,7 @@ NTSTATUS probe_builtin_unixlib(void *module,ULONGLONG *handle)
 #ifdef PROBE_TEST_NO_NATIVE_UNIXLIB
     /* Negative-control executable only. Keep the same platform fixes and
      * socket backend, with generic native unixlib lookup disabled. */
-    fprintf(stderr,"MISSING_NATIVE_UNIXLIB module=%s\n",name);
+    probe_diagnostic("MISSING_NATIVE_UNIXLIB module=%s\n",name);
     return STATUS_DLL_NOT_FOUND;
 #endif
     ANSI_STRING exp_name={(USHORT)length,(USHORT)(length+1),(char *)name};
@@ -278,7 +279,7 @@ NTSTATUS probe_builtin_unixlib(void *module,ULONGLONG *handle)
         *handle=(ULONG_PTR)optional_unixlib_table;
         status=STATUS_SUCCESS;
     }
-    if(status)fprintf(stderr,"MISSING_NATIVE_UNIXLIB %s status=%08lx\n",name,status);
+    if(status)probe_diagnostic("MISSING_NATIVE_UNIXLIB %s status=%08lx\n",name,status);
     return status;
 }
 void WINAPI probe_unixlib_unmap(void *module,BOOL post,NTSTATUS status)

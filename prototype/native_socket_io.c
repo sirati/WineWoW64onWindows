@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include "wine/afd.h"
 #include "wine/condrv.h"
+extern void probe_diagnostic(const char *format,...);
 #include "native_io.h"
 extern BOOL probe_socket_ready(void);
 static NTSTATUS socket_status(int error)
@@ -354,7 +355,7 @@ static NTSTATUS socket_call(HANDLE file,HANDLE event,void *context,IO_STATUS_BLO
             if(!options[i].set)information=size;
             found=TRUE;break;
         }
-        if(!found){fprintf(stderr,"UNSUPPORTED_WINE_DEVICE_IOCTL %08lx\n",args->code);status=STATUS_NOT_SUPPORTED;}
+        if(!found){probe_diagnostic("UNSUPPORTED_WINE_DEVICE_IOCTL %08lx\n",args->code);status=STATUS_NOT_SUPPORTED;}
         break;
     }
     }
@@ -367,12 +368,12 @@ NTSTATUS WINAPI probe_NtDeviceIoControlFile(HANDLE file,HANDLE event,PIO_APC_ROU
                                             IO_STATUS_BLOCK *io,ULONG code,void *input,ULONG input_size,void *output,ULONG output_size)
 {
     extern int probe_trace;
-    if(probe_trace)fprintf(stderr,"DEVICE_IOCTL code=%08lx file=%p in=%lu out=%lu\n",code,file,input_size,output_size);
+    if(probe_trace)probe_diagnostic("DEVICE_IOCTL code=%08lx file=%p in=%lu out=%lu\n",code,file,input_size,output_size);
     if(probe_trace&&code==IOCTL_CONDRV_WRITE_CONSOLE&&input&&!(input_size&1))
     {
         char text[2048];
         int length=WideCharToMultiByte(CP_UTF8,0,input,min(input_size/sizeof(WCHAR),512),text,sizeof(text)-1,NULL,NULL);
-        if(length){text[length]=0;fprintf(stderr,"CONSOLE_WRITE_TEXT=%s\n",text);}
+        if(length){text[length]=0;probe_diagnostic("CONSOLE_WRITE_TEXT=%s\n",text);}
     }
     if(!probe_socket_ready())return STATUS_DEVICE_NOT_READY;
     struct socket_io *op=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(*op));
