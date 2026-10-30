@@ -330,6 +330,7 @@ struct user_callback_frame
     ULONG *ret_len;
     NTSTATUS status;
 };
+extern void probe_diagnostic(const char *format,...);
 static DWORD callback_slot=TLS_OUT_OF_INDEXES;
 static DWORD callback_return_gate;
 void probe_callback_init(void *dispatcher,void *return_gate)
@@ -378,6 +379,17 @@ NTSTATUS WINAPI Wow64KiUserCallbackDispatcher(ULONG id,void *args,ULONG len,void
     TlsSetValue(callback_slot,frame.prev_frame);
     teb32->Tib.ExceptionList=teb_frame;
     _aligned_free(nested);
+    if(frame.status<0)
+    {
+        /* Wine's dispatcher reports only the status of an exception it
+         * caught. Name the callback (ntuser.h id) and its 32-bit arguments;
+         * for a window procedure they begin with func, hwnd and message. */
+        const ULONG *words=args;
+        probe_diagnostic("USER_CALLBACK_FAILED id=%lu status=%08lx tid=%lu len=%lu args=%08lx %08lx %08lx %08lx %08lx %08lx\n",
+                         id,(unsigned long)frame.status,GetCurrentThreadId(),len,
+                         len>0?words[0]:0,len>4?words[1]:0,len>8?words[2]:0,
+                         len>12?words[3]:0,len>16?words[4]:0,len>20?words[5]:0);
+    }
     return frame.status;
 }
 NTSTATUS WINAPI wow64_NtCallbackReturn(UINT *args)
