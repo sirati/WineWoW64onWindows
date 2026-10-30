@@ -75,6 +75,22 @@ public static class ViewerInput {
         using (Graphics g = Graphics.FromImage(b)) g.CopyFromScreen(client[0], client[1], 0, 0, new Size(client[2], client[3]));
         return b;
     }
+    // Share of the most common colour in a sample; near 1 while the viewer is blank.
+    public static double Uniformity(Bitmap a) {
+        Rectangle r = new Rectangle(0, 0, a.Width, a.Height);
+        BitmapData d = a.LockBits(r, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        try {
+            int n = a.Width * a.Height; int[] px = new int[n];
+            Marshal.Copy(d.Scan0, px, 0, n);
+            var counts = new System.Collections.Generic.Dictionary<int, int>();
+            int samples = 0, best = 0;
+            for (int k = 0; k < n; k += 7) {
+                int c; counts.TryGetValue(px[k], out c); counts[px[k]] = ++c;
+                if (c > best) best = c; samples++;
+            }
+            return samples > 0 ? (double)best / samples : 1.0;
+        } finally { a.UnlockBits(d); }
+    }
     // Fraction of pixels that differ between two captures of the same size.
     public static double Difference(Bitmap a, Bitmap b) {
         if (a.Width != b.Width || a.Height != b.Height) return 1.0;

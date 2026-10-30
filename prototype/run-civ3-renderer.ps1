@@ -201,12 +201,14 @@ function Add-PlayStep([string]$name,$action,$settle,$shot,[hashtable]$extra=@{})
     Note "STEP $name screen=$($trace.screen) settled=$($settle.settled) seconds=$($settle.seconds) bridgeErrors=$($new.bridge.Count) stderrErrors=$($new.stderr.Count) exited=$($p.HasExited)"
 }
 # Move, hover 1 s, click; the first click after a jump may only hover, so
-# click again if the viewer did not change.
+# click again if the viewer did not change. The viewer polls the pointer,
+# so it arrives from a few pixels away: a repeat at the same point moves too.
 function Invoke-ViewerClick([int]$x,[int]$y){
     $client=[ViewerInput]::Client($script:viewer)
     if(-not $client){return [pscustomobject]@{clientX=$x;clientY=$y;error='no viewer window'}}
     $screenX=$client[0]+$x;$screenY=$client[1]+$y
-    $sent=[ViewerInput]::Move($screenX,$screenY);Start-Sleep -Milliseconds 1000
+    $sent=[ViewerInput]::Move($screenX+6,$screenY+4);Start-Sleep -Milliseconds 200
+    $sent+=[ViewerInput]::Move($screenX,$screenY);Start-Sleep -Milliseconds 1000
     $before=[ViewerInput]::Capture($client);$presses=1
     try {
         $pressedAt=[DateTime]::UtcNow;$sent+=[ViewerInput]::Press($screenX,$screenY)
@@ -241,6 +243,27 @@ function Send-Keys([string]$sequence){
     }
     [pscustomobject]@{keys=$sequence;foreground=$foreground;inputs=$sent}
 }
+# WARP can take minutes to present the first frame; the trace lists the
+# title's text before the viewer shows it.
+function Wait-ViewerContent([int]$maximum){
+    $began=[DateTime]::UtcNow;$uniformity=1.0
+    while(-not $p.HasExited -and ([DateTime]::UtcNow-$began).TotalSeconds -lt $maximum){
+        $client=[ViewerInput]::Client($script:viewer);if(-not $client){break}
+        $bitmap=[ViewerInput]::Capture($client)
+        try {$uniformity=[ViewerInput]::Uniformity($bitmap)} finally {$bitmap.Dispose()}
+        if($uniformity -lt 0.9){break}
+        Start-Sleep -Seconds 2
+    }
+    [pscustomobject]@{seconds=[Math]::Round(([DateTime]::UtcNow-$began).TotalSeconds,1);uniformity=[Math]::Round($uniformity,3);shown=($uniformity -lt 0.9)}
+}
+# Whether the viewer left a screen: a new trace screen name, or a picture
+# that differs from the reference in over a third of its pixels.
+function Test-LeftScreen([string]$screen,$reference){
+    if((Get-TextTrace).screen -ne $screen){return $true}
+    $client=[ViewerInput]::Client($script:viewer);if(-not $client){return $true}
+    $bitmap=[ViewerInput]::Capture($client)
+    try {return [ViewerInput]::Difference($reference,$bitmap) -gt 0.33} finally {$bitmap.Dispose()}
+}
 function Wait-Exit([int]$seconds){
     $deadline=[DateTime]::UtcNow.AddSeconds($seconds)
     while(-not $p.HasExited -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 100}
@@ -257,12 +280,23 @@ function Invoke-Play([datetime]$viewerSeen){
     while(-not $p.HasExited -and [DateTime]::UtcNow -lt $deadline){
         $target=Find-TraceText (Get-TextTrace) '^\s*Quick Start\s*$';if($target){break};Start-Sleep -Seconds 2
     }
+    $shown=Wait-ViewerContent 300
     $settle=Wait-Viewer 3 60;$shot=Save-ViewerStep '00-title'
-    Add-PlayStep '00-title' $null $settle $shot @{target=$target}
+    Add-PlayStep '00-title' $null $settle $shot @{target=$target;shown=$shown}
     $state.titleFound=[bool]$target
-    if(-not $target -or $p.HasExited){return [pscustomobject]$state}
-    # 1. Quick Start; the map is up once the trace shows the date.
-    $action=Invoke-ViewerClick $target.x $target.y;$clicked=[DateTime]::UtcNow
+    if(-not $target -or -not $shown.shown -or $p.HasExited){return [pscustomobject]$state}
+    # 1. Quick Start, clicked again while the title stays; the map is up
+    # once the trace shows the date.
+    $action=@();$reference=[ViewerInput]::Capture([ViewerInput]::Client($script:viewer))
+    try {
+        for($attempt=1;$attempt -le 3 -and -not $p.HasExited;$attempt++){
+            $action+=Invoke-ViewerClick $target.x $target.y
+            $deadline=[DateTime]::UtcNow.AddSeconds(30);$left=$false
+            while(-not $p.HasExited -and [DateTime]::UtcNow -lt $deadline -and -not ($left=Test-LeftScreen 'title' $reference)){Start-Sleep -Seconds 1}
+            if($left){break}
+        }
+    } finally {$reference.Dispose()}
+    $clicked=[DateTime]::UtcNow
     while(-not $p.HasExited -and ([DateTime]::UtcNow-$clicked).TotalSeconds -lt $StepSeconds){
         $state.mapDate=Get-TraceDate (Get-TextTrace);if($state.mapDate){break};Start-Sleep -Seconds 3
     }
