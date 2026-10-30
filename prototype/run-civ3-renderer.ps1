@@ -48,6 +48,9 @@ $bridgeLog=Join-Path $conquests 'civ3-bridge.log'
 Remove-Item -LiteralPath $bridgeLog -ErrorAction SilentlyContinue
 $settings=Join-Path $results 'settings'
 New-Item -ItemType Directory -Force $settings|Out-Null
+# The viewer writes "menu-presented" here once a complete title menu is shown.
+$readyFile=Join-Path $results 'startup-ready.txt'
+Remove-Item -LiteralPath $readyFile -ErrorAction SilentlyContinue
 $settingsCopied=$false
 if($SettingsFrom -and (Test-Path -LiteralPath $SettingsFrom)){
     Copy-Item -LiteralPath $SettingsFrom -Destination (Join-Path $settings 'settings.toml') -Force;$settingsCopied=$true
@@ -165,9 +168,25 @@ function Get-TextTrace{
     [pscustomobject]@{screen=$screen;runs=$runs}
 }
 function Get-TraceTexts($trace){@($trace.runs|ForEach-Object {$_.text})}
+# The HUD run starts with the date: "4000 BC   10 Gold (+0 per turn)".
 function Get-TraceDate($trace){
-    foreach($run in $trace.runs){if($run.text -match '^\s*\d{1,4}\s*(BC|AD)\s*$'){return $run.text.Trim()}}
+    foreach($run in $trace.runs){if($run.text -match '^\s*(\d{1,4}\s*(BC|AD))\b'){return $matches[1]}}
     return $null
+}
+# A popup's text sits above the HUD in 16 pt or larger ("Dawn of
+# Civilization" is 24 pt); the HUD and map labels are smaller.
+function Get-TracePopup($trace){
+    foreach($run in $trace.runs){if($run.height -ge 16 -and $run.y -lt 640 -and $run.text.Trim()){return $run.text.Trim()}}
+    return $null
+}
+# The HUD says "Please wait..." while the game is busy; keys wait for it.
+function Wait-NotBusy([int]$maximum){
+    $began=[DateTime]::UtcNow
+    while(-not $p.HasExited -and ([DateTime]::UtcNow-$began).TotalSeconds -lt $maximum){
+        if(-not @((Get-TextTrace).runs|Where-Object {$_.text -match '^\s*Please wait'}).Count){return $true}
+        Start-Sleep -Seconds 1
+    }
+    return $false
 }
 # Interface text maps to the client area as (ox, oy) + game * N/1024, from
 # the bridge's latest "window at (ox, oy) ...; menus N/1024" line.
@@ -280,9 +299,17 @@ function Invoke-Play([datetime]$viewerSeen){
     while(-not $p.HasExited -and [DateTime]::UtcNow -lt $deadline){
         $target=Find-TraceText (Get-TextTrace) '^\s*Quick Start\s*$';if($target){break};Start-Sleep -Seconds 2
     }
-    $shown=Wait-ViewerContent 300
+    # The trace lists the title before the viewer presents it; click only
+    # after the viewer's startup-ready file says the menu is shown (builds
+    # without it rely on the picture alone).
+    $ready=$null;$deadline=$viewerSeen.AddSeconds(150)
+    while(-not $p.HasExited -and [DateTime]::UtcNow -lt $deadline){
+        if(Test-Path -LiteralPath $readyFile){$ready=[pscustomobject]@{content=(Read-Shared $readyFile).Trim();seenUTC=[DateTime]::UtcNow.ToString('o')};break}
+        Start-Sleep -Milliseconds 500
+    }
+    $shown=Wait-ViewerContent 60
     $settle=Wait-Viewer 3 60;$shot=Save-ViewerStep '00-title'
-    Add-PlayStep '00-title' $null $settle $shot @{target=$target;shown=$shown}
+    Add-PlayStep '00-title' $null $settle $shot @{target=$target;ready=$ready;shown=$shown}
     $state.titleFound=[bool]$target
     if(-not $target -or -not $shown.shown -or $p.HasExited){return [pscustomobject]$state}
     # 1. Quick Start, clicked again while the title stays; the map is up
@@ -296,25 +323,31 @@ function Invoke-Play([datetime]$viewerSeen){
             if($left){break}
         }
     } finally {$reference.Dispose()}
-    $clicked=[DateTime]::UtcNow
+    # The map is up once the trace shows the HUD's date; newer bridges also
+    # log "first map drawn" once.
+    $clicked=[DateTime]::UtcNow;$mapDrawn=$null
     while(-not $p.HasExited -and ([DateTime]::UtcNow-$clicked).TotalSeconds -lt $StepSeconds){
-        $state.mapDate=Get-TraceDate (Get-TextTrace);if($state.mapDate){break};Start-Sleep -Seconds 3
+        if(-not $mapDrawn -and (Read-BridgeLog) -match '[^\r\n]*viewer: first map drawn[^\r\n]*'){$mapDrawn=$matches[0].Trim()}
+        $state.mapDate=Get-TraceDate (Get-TextTrace);if($state.mapDate){break}
+        Start-Sleep -Seconds 3
     }
     $settle=Wait-Viewer 3 120;$shot=Save-ViewerStep '01a-quick-start'
-    Add-PlayStep '01a-quick-start' $action $settle $shot @{date=$state.mapDate}
+    Add-PlayStep '01a-quick-start' $action $settle $shot @{mapDrawn=$mapDrawn;date=$state.mapDate}
     if(-not $state.mapDate -or $p.HasExited){return [pscustomobject]$state}
-    # A dialog or advisor popup at the start takes Enter.
-    for($round=1;$round -le 3 -and -not $p.HasExited;$round++){
-        $trace=Get-TextTrace
-        if($trace.screen -notmatch 'popup|dialog|advisor|message'){break}
+    # A dialog or advisor popup at the start takes Enter. The HUD keeps
+    # "Please wait..." while one is open, so wait for the game afterwards.
+    for($round=1;$round -le 4 -and -not $p.HasExited;$round++){
+        $popup=Get-TracePopup (Get-TextTrace)
+        if(-not $popup){break}
         $action=Send-Keys 'Enter';$settle=Wait-Viewer 3 60;$shot=Save-ViewerStep "01b-popup-$round"
-        Add-PlayStep "01b-popup-$round" $action $settle $shot @{screenBefore=$trace.screen}
+        Add-PlayStep "01b-popup-$round" $action $settle $shot @{popup=$popup}
     }
+    $notBusy=Wait-NotBusy 120
     # 2. Found a city: B, Enter at the name dialog, Escape if the city screen opened.
     $action=Send-Keys 'B';$settle=Wait-Viewer 3 120;$shot=Save-ViewerStep '02a-build'
-    Add-PlayStep '02a-build' $action $settle $shot
-    $action=Send-Keys 'Enter';$settle=Wait-Viewer 3 120;$shot=Save-ViewerStep '02b-name'
-    Add-PlayStep '02b-name' $action $settle $shot
+    Add-PlayStep '02a-build' $action $settle $shot @{notBusyBefore=$notBusy;popup=(Get-TracePopup (Get-TextTrace))}
+    $action=Send-Keys 'Enter';$settle=Wait-Viewer 3 120;$notBusy=Wait-NotBusy 120;$shot=Save-ViewerStep '02b-name'
+    Add-PlayStep '02b-name' $action $settle $shot @{notBusy=$notBusy}
     $trace=Get-TextTrace
     if($trace.screen -match 'city'){
         $action=Send-Keys 'Escape';$settle=Wait-Viewer 3 120;$shot=Save-ViewerStep '02c-city-screen'
@@ -328,6 +361,7 @@ function Invoke-Play([datetime]$viewerSeen){
         $prompt=@($trace.runs|Where-Object {$_.text -match 'end\W.*turn|turn\W.*end|press\W+enter'}|ForEach-Object {$_.text})
         $keys=if($prompt.Count -or $unchanged -ge 2){'Enter'}else{'Space'}
         $action=Send-Keys $keys;$settle=Wait-Viewer 3 $(if($keys -eq 'Enter'){180}else{30})
+        $notBusy=Wait-NotBusy $(if($keys -eq 'Enter'){300}else{60})
         $after=Get-TextTrace;$dateAfter=Get-TraceDate $after
         $state.turnAdvanced=[bool]($dateBefore -and $dateAfter -and $dateAfter -ne $dateBefore)
         $texts=(Get-TraceTexts $after) -join "`n"
@@ -337,6 +371,7 @@ function Invoke-Play([datetime]$viewerSeen){
         Add-PlayStep "03-end-turn-$round" $action $settle $shot @{prompt=$prompt;dateBefore=$dateBefore;dateAfter=$dateAfter;turnAdvanced=$state.turnAdvanced}
     }
     # 4. Save as wow64test.
+    $notBusy=Wait-NotBusy 120
     $action=Send-Keys 'Ctrl+S';$settle=Wait-Viewer 3 60;$shot=Save-ViewerStep '04a-save'
     Add-PlayStep '04a-save' $action $settle $shot
     $action=Send-Keys ((@('Backspace')*30+@('W','O','W','6','4','T','E','S','T')) -join ' ')
@@ -407,7 +442,7 @@ try {
         CIV3R_FONT_CACHE=(Join-Path $renderer 'fonts'); CIV3R_SETTINGS=(Join-Path $settings 'settings.toml')
         RUST_BACKTRACE='1'; WGPU_BACKEND='dx12'; TILE_RENDER_ADAPTER='basic render'
         PROBE_WINE_DEBUG=$WineDebug; WINEDEBUG=$GuestDebug
-        CIV3R_TEXT_TRACE=$(if($Play){'1'}else{''})
+        CIV3R_TEXT_TRACE=$(if($Play){'1'}else{''}); CIV3R_STARTUP_READY_FILE=$readyFile
     }
     # This runner is a child process; its environment goes to wine-host.exe.
     foreach($key in $environment.Keys){if($environment[$key]){Set-Item -LiteralPath "env:$key" -Value ([string]$environment[$key])}}
