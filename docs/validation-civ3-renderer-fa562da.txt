@@ -1,0 +1,74 @@
+Civ3 with the civ3-renderer bridge and native viewer, 2026-10-29
+
+Candidate: fa562daa7e8dee85966370114a25151634efc36a
+wine-host.exe SHA256:
+D526B65FBC81B1B9269518BAD25139F691ECC3BDC08632B47DAA4A091AA6D21E
+Renderer artifacts: civ3-renderer main 7ec7322 (RUN.txt SHA256
+3e325ec8376ade4b...), copied unchanged: game/IFC23.dll 1559d4a5...,
+game/civ3r_native.dll and dllpath/i386-windows/civ3r_native.dll 0f58cad6...,
+dllpath/x86_64-native/civ3r_native.dll d6642c0f..., 624 glyph sheets in
+fonts/ (`find . -type f | sort | xargs sha256sum | sha256sum` =
+9b0f5a83...a2ca).
+
+Luna 6 ran the frozen candidate in a throwaway VM from the Civ3 layer image,
+which has only the Microsoft Basic Render Driver. The primary audited the raw
+rows and screenshots.
+
+Renderer run
+
+run-civ3-renderer.ps1 renamed the game's IFC23.dll to ifc23_orig.dll, copied
+the bridge into Conquests and started `wine-host.exe --wine-components
+"C:\Games\Civilization III Complete\Conquests\Civ3Conquests.exe"` from the
+Conquests directory in session 1 (a scheduled task with an interactive
+token) with WINEDLLPATH=<dllpath>, WINEDLLOVERRIDES=civ3r_native=b,
+CIV3R_VIEWER=native, CIV3R_GAME_RENDER=off, WGPU_BACKEND=dx12 and
+TILE_RENDER_ADAPTER="basic render". The guest keeps Wine's null display
+driver; the viewer is the renderer's own native window.
+
+| Check | Result |
+|---|---|
+| Native control: x64 civ3r_native.dll alone in a plain x64 process | loads, both unixlib tables exported (exit 0) |
+| Negative control: i686 civ3r_native.dll loaded natively | fails, error 193 (exit 2) |
+| WINE_LOAD_APPLICATION, WINE_ATTACH | status 0 |
+| Bridge log markers adapter, art 1, viewer started | all at 3.88 s; art 1: 4059 sprites in 2232 ms |
+| Natively loaded civ3r_native in wine-host.exe | dllpath\x86_64-native\civ3r_native.dll |
+| Viewer window "Civ III (native renderer)" | found at +6 s (white); +66 s shows the Conquests title and main menu |
+| WM_CLOSE to the viewer after the screenshots | game exits 0 within 0.18 s |
+
+The first err: lines are the expected ones: explorer.exe is not launched,
+no Common-Controls 6.0 manifest, no audio driver, a mismatched
+CoUninitialize and the original IFC23's unregistered force-feedback COM
+class. One guest window callback raised an access violation that Wine's
+dispatch_user_callback ignored; the game continued. Its source is open.
+
+Failures fixed on the way
+
+- d8823fc: the runner read the bridge log while the bridge wrote it, died,
+  and closed the bridge's stderr; wine-host.exe kept the runner's inherited
+  output pipe, so the case never returned. c8af9f9 writes wine-host output
+  to files, reads the log with shared access and ends wine-host if the
+  runner stops early.
+- c8af9f9: the bridge reported 0xc0000135 and stderr showed
+  NATIVE_UNIXLIB_LOAD_FAILED ... civ3r_native.dll error=127, while the
+  native control loaded the same DLL. The bridge imports opengl32, so Wine's
+  opengl32 had loaded its x64 companion, installed as
+  x86_64-native\opengl32.dll. Windows binds an import to any loaded module
+  with that base name, so the renderer's opengl32 import resolved to the
+  companion, which has no wgl exports. fa562da names native unixlibs
+  <module>.so, as Wine's find_builtin_dll does, and still finds
+  <module>.dll.
+
+Regressions on the same candidate
+
+| Suite | Result |
+|---|---|
+| unixlib (echo fixture, 3 repeats) | 24/24, including the .so-only rows and the lookup-disabled and missing-native negative controls |
+| unixlib window (session 1, WARP) | 12/12 |
+| gui_controls32, seven modes | Wine 14/14; native cursor fails in session 0 only (error 1459) |
+| Civ3 headless smoke | runs the full 60 s with WINE_LOAD_APPLICATION status 0 |
+| focused (35 fixture children, 1 repeat) | 84/84 rows, no failures, crashes or timeouts |
+| cross, unmodified | 29/29, 16/16 |
+
+Raw evidence: evidence/gui-validation/validation-fa562da/vm-results/
+civ3-val-fa562da-20261029-172303. Failed rounds: validation-d8823fc and
+validation-c8af9f9.

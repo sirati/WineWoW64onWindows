@@ -127,5 +127,7 @@ fixture passes in Luna's logged-on session. Wine's GUI stack passes the x86
 window, message, timer, cursor, DC, focus, cross-thread and text controls in
 sessions 0 and 1; see [the GUI report](docs/validation-gui-c56a5df.txt).
 Civ3Conquests.exe reaches its main loop headless; see
-[the Civ3 report](docs/validation-civ3-40c68b9.txt). Universal unmodified
-application compatibility is not established.
+[the Civ3 report](docs/validation-civ3-40c68b9.txt). With the civ3-renderer
+bridge and its x64 unixlib, the renderer's native window shows the Conquests
+title and main menu; see [the renderer report](docs/validation-civ3-renderer-fa562da.txt).
+Universal unmodified application compatibility is not established.
