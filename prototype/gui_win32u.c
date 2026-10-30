@@ -257,13 +257,14 @@ int ntdll_wcstoumbs(const WCHAR *src,DWORD srclen,char *dst,DWORD dstlen,BOOL st
 }
 /* The only library loaded this way is FreeType, from x86_64-native. Its
  * dependencies are found in the same directory. */
+extern HMODULE probe_load_native_library(const WCHAR *path);
 void *dlopen(const char *name,int flags)
 {
     WCHAR relative[MAX_PATH],path[MAX_PATH*2];
     (void)flags;
     if(strchr(name,'/')||strchr(name,'\\')||_snwprintf(relative,ARRAY_SIZE(relative),L"stock-wine\\x86_64-native\\%hs",name)<0||
        !probe_runtime_path(path,ARRAY_SIZE(path),relative))return NULL;
-    return LoadLibraryExW(path,NULL,LOAD_WITH_ALTERED_SEARCH_PATH);
+    return probe_load_native_library(path);
 }
 void *dlsym(void *handle,const char *name) { return (void *)GetProcAddress(handle,name); }
 int dlclose(void *handle) { return !FreeLibrary(handle); }

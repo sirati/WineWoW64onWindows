@@ -62,12 +62,32 @@ static char *utf8_path(const WCHAR *path)
     if(result)WideCharToMultiByte(CP_UTF8,0,path,-1,result,count,NULL,NULL);
     return result;
 }
+/* Windows binds a module's imports to any loaded module with the same base
+ * name, so a native library named like a system DLL would capture other
+ * modules' imports of that DLL, as an opengl32.dll unixlib did. Refuse it.
+ * The absolute path also supplies the directory for native dependencies. */
+HMODULE probe_load_native_library(const WCHAR *path)
+{
+    WCHAR system[MAX_PATH*2];
+    const WCHAR *base=wcsrchr(path,L'\\');
+    UINT length=GetSystemDirectoryW(system,MAX_PATH);
+    base=base?base+1:path;
+    if(!length||length>=MAX_PATH||length+1+wcslen(base)>=ARRAY_SIZE(system))
+    {SetLastError(ERROR_FILENAME_EXCED_RANGE);return NULL;}
+    wcscat(system,L"\\");wcscat(system,base);
+    if(GetFileAttributesW(system)!=INVALID_FILE_ATTRIBUTES)
+    {
+        probe_diagnostic("NATIVE_LIBRARY_SHADOWS_SYSTEM_DLL path=%ls system=%ls\n",path,system);
+        SetLastError(ERROR_ALREADY_EXISTS);
+        return NULL;
+    }
+    return LoadLibraryExW(path,NULL,LOAD_WITH_ALTERED_SEARCH_PATH);
+}
 static void *native_dlopen(const char *path,int flags)
 {
     WCHAR *name=wide_path(path);(void)flags;
-    /* The absolute unixlib path also supplies the directory for native
-     * dependencies. No Wine guest DLL is passed to the Windows loader. */
-    HMODULE module=name?LoadLibraryExW(name,NULL,LOAD_WITH_ALTERED_SEARCH_PATH):NULL;
+    /* No Wine guest DLL is passed to the Windows loader. */
+    HMODULE module=name?probe_load_native_library(name):NULL;
     if(!module)probe_diagnostic("NATIVE_UNIXLIB_LOAD_FAILED path=%s error=%lu\n",path,GetLastError());
     free(name);return module;
 }

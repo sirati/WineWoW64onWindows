@@ -18,7 +18,7 @@ $oldPath=$env:WINEDLLPATH
 $oldOverrides=$env:WINEDLLOVERRIDES
 Remove-Item Env:WINE_NATIVE_BRIDGE -ErrorAction SilentlyContinue
 $env:WINEDLLOVERRIDES='wine_unixlib_echo=b'
-function Invoke-Control([string]$name,[string]$program,[string]$arguments,[string]$cwd,[string]$paths,[int]$expectedExit,[string]$marker,[bool]$success,[string]$buildDirectory='') {
+function Invoke-Control([string]$name,[string]$program,[string]$arguments,[string]$cwd,[string]$paths,[int]$expectedExit,[string]$marker,[bool]$success,[string]$buildDirectory='',[string]$stderrMarker='') {
     $env:WINEDLLPATH=$paths
     $p=New-Object System.Diagnostics.Process
     try {
@@ -37,7 +37,8 @@ function Invoke-Control([string]$name,[string]$program,[string]$arguments,[strin
         $loaded=$stdout -match 'WINE_LOAD_APPLICATION status=00000000'
         $passed=-not $timeout -and $exit -eq $expectedExit -and $markerMatched -and $loaded
         if($success){$passed=$passed -and $stdout -match '(?m)^GUEST_EXIT code=0 .*HOST_RETURNED\r?$' -and $stdout -notmatch 'ECHO_FAILED'}
-        $row=[pscustomobject]@{name=$name;program=$program;arguments=$arguments;workingDirectory=$cwd;pid=$pidValue;wineDllPath=$paths;wineBuildDirectory=$buildDirectory;wineDllOverrides=$env:WINEDLLOVERRIDES;expectedExit=$expectedExit;exitCode=$exit;timedOut=$timeout;marker=$marker;markerMatched=$markerMatched;wineLoadMarker=$loaded;passed=$passed;stdout=$stdout;stderr=$stderr}
+        if($stderrMarker){$passed=$passed -and $stderr -match $stderrMarker}
+        $row=[pscustomobject]@{name=$name;program=$program;arguments=$arguments;workingDirectory=$cwd;pid=$pidValue;wineDllPath=$paths;wineBuildDirectory=$buildDirectory;wineDllOverrides=$env:WINEDLLOVERRIDES;expectedExit=$expectedExit;exitCode=$exit;timedOut=$timeout;marker=$marker;markerMatched=$markerMatched;stderrMarker=$stderrMarker;wineLoadMarker=$loaded;passed=$passed;stdout=$stdout;stderr=$stderr}
         $rows.Add($row)
         [IO.File]::WriteAllText((Join-Path $results "$name.json"),(ConvertTo-Json -InputObject $row -Depth 5),$utf8)
         [IO.File]::WriteAllText((Join-Path $results "$name.stdout.txt"),$stdout,$utf8)
@@ -110,6 +111,24 @@ try {
     Copy-Item -LiteralPath $app -Destination (Join-Path $missing 'wine-unixlib-echo-app.exe') -Force
     $missingArguments='--wine-components "'+(Join-Path $missing 'wine-unixlib-echo-app.exe')+'"'
     Invoke-Control 'missing-native' "$runtime/wine-host.exe" $missingArguments $runtime "$split/pe" 2 '(?m)^ECHO_FAILED load status=0xc0000135\r?$' $false
+    # Wine's opengl32 companion ships as opengl32.so. Under its PE name it
+    # would shadow the system opengl32.dll, so the loader refuses it and
+    # opengl32's process attach fails (negative control).
+    $glArguments='--wine-components "'+(Join-Path $runtime 'guest/gui_controls32.exe')+'" opengl'
+    Invoke-Control 'opengl-so' "$runtime/wine-host.exe" $glArguments $runtime '' 0 '(?m)^GUI_OK mode=opengl loaded=1\r?$' $true
+    $companion=Join-Path $runtime 'stock-wine/x86_64-native/opengl32.so'
+    $shadow=Join-Path $runtime 'stock-wine/x86_64-native/opengl32.dll'
+    if(Test-Path -LiteralPath $shadow){throw 'Preserve the existing opengl32.dll'}
+    Move-Item -LiteralPath $companion -Destination $shadow
+    try {
+        Invoke-Control 'opengl-shadow' "$runtime/wine-host.exe" $glArguments $runtime '' 21 '(?m)^GUI_FAIL mode=opengl step=1 ' $false '' 'NATIVE_LIBRARY_SHADOWS_SYSTEM_DLL path=\S*opengl32\.dll'
+    } finally {Move-Item -LiteralPath $shadow -Destination $companion}
+    # No shipped native library may share a base name with a system DLL.
+    $system=[Environment]::SystemDirectory
+    $companions=@(Get-ChildItem -LiteralPath (Join-Path $runtime 'stock-wine/x86_64-native') -File|ForEach-Object {$_.Name})
+    $clashes=@($companions|Where-Object {Test-Path -LiteralPath (Join-Path $system $_)})
+    $rows.Add([pscustomobject]@{name='companion-names';systemDirectory=$system;files=$companions;clashes=$clashes;passed=($companions.Count -gt 0 -and $clashes.Count -eq 0)})
+    Write-Output "UNIXLIB_COMPANION_NAMES files=$($companions -join ',') clashes=$($clashes -join ',')"
     $runtimeNativeDirectory=Join-Path $runtime 'x86_64-native'
     $createdNativeDirectory=-not (Test-Path -LiteralPath $runtimeNativeDirectory)
     $runtimeNative=Join-Path $runtimeNativeDirectory 'wine_unixlib_echo.dll'
