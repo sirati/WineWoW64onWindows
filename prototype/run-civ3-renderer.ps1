@@ -12,7 +12,10 @@ param(
     # Play Quick Start, found a city, end a turn, save and exit through the
     # game's menu with input to the viewer window (civ3-viewer-input.ps1).
     [switch]$Play,
-    [int]$StepSeconds=300
+    [int]$StepSeconds=300,
+    # A settings.toml the bridge wrote in an earlier run; its first_run
+    # section keeps Preferences from opening over the title menu.
+    [string]$SettingsFrom=''
 )
 # Civ3 with the civ3-renderer bridge (IFC23.dll) and its x64 unixlib over the
 # game copy. The guest keeps Wine's null display driver; the renderer opens
@@ -45,6 +48,10 @@ $bridgeLog=Join-Path $conquests 'civ3-bridge.log'
 Remove-Item -LiteralPath $bridgeLog -ErrorAction SilentlyContinue
 $settings=Join-Path $results 'settings'
 New-Item -ItemType Directory -Force $settings|Out-Null
+$settingsCopied=$false
+if($SettingsFrom -and (Test-Path -LiteralPath $SettingsFrom)){
+    Copy-Item -LiteralPath $SettingsFrom -Destination (Join-Path $settings 'settings.toml') -Force;$settingsCopied=$true
+}
 $installed=foreach($name in 'IFC23.dll','ifc23_orig.dll','civ3r_native.dll'){
     $path=Join-Path $conquests $name
     [pscustomobject]@{path=$path;sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash;size=(Get-Item -LiteralPath $path).Length}
@@ -55,9 +62,11 @@ Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public static class ProbeWindow {
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     // PowerShell passes $null as "" to string parameters; take a NULL class pointer.
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(IntPtr className, string title);
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wparam, IntPtr lparam);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
 }
 "@
 function Save-Screenshot([string]$name){
@@ -80,6 +89,17 @@ function Read-Shared([string]$path){
     } catch {''}
 }
 function Read-BridgeLog{Read-Shared $bridgeLog}
+# The viewer's outer rectangle against the desktop work area (above the taskbar).
+function Get-ViewerPlacement([IntPtr]$window){
+    $rect=New-Object ProbeWindow+RECT
+    if($window -eq [IntPtr]::Zero -or -not [ProbeWindow]::GetWindowRect($window,[ref]$rect)){return $null}
+    $work=[System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+    [pscustomobject]@{
+        window=@($rect.Left,$rect.Top,$rect.Right,$rect.Bottom)
+        workArea=@($work.Left,$work.Top,$work.Right,$work.Bottom)
+        insideWorkArea=($rect.Left -ge $work.Left -and $rect.Top -ge $work.Top -and $rect.Right -le $work.Right -and $rect.Bottom -le $work.Bottom)
+    }
+}
 # Natively loaded civ3r_native modules of wine-host.exe; the guest's PE is
 # mapped by Wine's loader and is not in this list.
 function Get-NativeUnixlibModules([int]$id){
@@ -121,40 +141,93 @@ function Wait-Viewer([int]$minimum,[int]$maximum){
 }
 function Save-ViewerStep([string]$name){
     $client=[ViewerInput]::Client($script:viewer)
-    if(-not $client){return [pscustomobject]@{screenshot=$null;client=$null;lines=@();text=@()}}
+    if(-not $client){return [pscustomobject]@{screenshot=$null;client=$null}}
     $bitmap=[ViewerInput]::Capture($client)
     try {
         $path=Join-Path $results "$ReportName-$name.png"
         $bitmap.Save($path,[System.Drawing.Imaging.ImageFormat]::Png)
-        $scaled=Join-Path $results "ocr-$name.png"
-        $lines=@(Read-ViewerText $bitmap $scaled)
-        Remove-Item -LiteralPath $scaled -ErrorAction SilentlyContinue
-        [pscustomobject]@{screenshot=$path;client=$client;lines=$lines;text=@($lines|ForEach-Object {$_.text})}
+        [pscustomobject]@{screenshot=$path;client=$client}
     } finally {$bitmap.Dispose()}
 }
+# The bridge's text trace (CIV3R_TEXT_TRACE=1): its latest block names the
+# screen and lists each visible text run at its pen x and baseline y, in
+# the game's 1024x768 coordinates.
+function Get-TextTrace{
+    $lines=@((Read-BridgeLog) -split "`r?`n")
+    for($start=$lines.Count-1;$start -ge 0;$start--){if($lines[$start] -match 'text trace: (.*?), forms'){break}}
+    if($start -lt 0){return [pscustomobject]@{screen=$null;runs=@()}}
+    $screen=$matches[1]
+    $runs=@(for($i=$start+1;$i -lt $lines.Count;$i++){
+        if($lines[$i] -match '"[^"]*"/(-?\d+) .*? at \((-?\d+),\s*(-?\d+)\).*? text "(.*)"\s*$'){
+            [pscustomobject]@{text=$matches[4];x=[int]$matches[2];y=[int]$matches[3];height=[Math]::Abs([int]$matches[1])}
+        }
+    })
+    [pscustomobject]@{screen=$screen;runs=$runs}
+}
+function Get-TraceTexts($trace){@($trace.runs|ForEach-Object {$_.text})}
+function Get-TraceDate($trace){
+    foreach($run in $trace.runs){if($run.text -match '^\s*\d{1,4}\s*(BC|AD)\s*$'){return $run.text.Trim()}}
+    return $null
+}
+# Interface text maps to the client area as (ox, oy) + game * N/1024, from
+# the bridge's latest "window at (ox, oy) ...; menus N/1024" line.
+function Get-ViewerMapping{
+    $found=[regex]::Matches((Read-BridgeLog),'window at \((-?\d+), (-?\d+)\)[^\r\n]*?menus (\d+)/(\d+)')
+    if($found.Count -eq 0){return $null}
+    $m=$found[$found.Count-1]
+    [pscustomobject]@{ox=[int]$m.Groups[1].Value;oy=[int]$m.Groups[2].Value;numerator=[int]$m.Groups[3].Value;denominator=[int]$m.Groups[4].Value}
+}
+# The first run matching a pattern, with a client point inside its label:
+# a little right of the pen and half a line above the baseline.
+function Find-TraceText($trace,[string]$pattern){
+    $mapping=Get-ViewerMapping
+    foreach($run in $trace.runs){
+        if($run.text -notmatch $pattern -or -not $mapping){continue}
+        $gameX=$run.x+[Math]::Min(20,[int]($run.height*0.25*$run.text.Length));$gameY=$run.y-[int]($run.height/2)
+        $scale=$mapping.numerator/$mapping.denominator
+        return [pscustomobject]@{text=$run.text;gameX=$gameX;gameY=$gameY;x=[int]($mapping.ox+$gameX*$scale);y=[int]($mapping.oy+$gameY*$scale);mapping=$mapping}
+    }
+    return $null
+}
 function Add-PlayStep([string]$name,$action,$settle,$shot,[hashtable]$extra=@{}){
-    $new=Get-NewLines
+    $new=Get-NewLines;$trace=Get-TextTrace
     $row=[ordered]@{step=$name;finishedUTC=[DateTime]::UtcNow.ToString('o');action=$action;settle=$settle
-        screenshot=$shot.screenshot;client=$shot.client;text=$shot.text;bridgeErrors=$new.bridge;stderrErrors=$new.stderr;exited=$p.HasExited}
+        screenshot=$shot.screenshot;client=$shot.client;screen=$trace.screen;texts=(Get-TraceTexts $trace)
+        bridgeErrors=$new.bridge;stderrErrors=$new.stderr;exited=$p.HasExited}
     foreach($key in $extra.Keys){$row[$key]=$extra[$key]}
     $playSteps.Add([pscustomobject]$row)
     # Kept current so a timed-out case still has every finished step.
     [IO.File]::WriteAllText((Join-Path $results "$ReportName-play-steps.json"),(ConvertTo-Json -InputObject @($playSteps.ToArray()) -Depth 8),$utf8)
-    Note "STEP $name settled=$($settle.settled) seconds=$($settle.seconds) bridgeErrors=$($new.bridge.Count) stderrErrors=$($new.stderr.Count) exited=$($p.HasExited)"
+    Note "STEP $name screen=$($trace.screen) settled=$($settle.settled) seconds=$($settle.seconds) bridgeErrors=$($new.bridge.Count) stderrErrors=$($new.stderr.Count) exited=$($p.HasExited)"
 }
+# Move, hover 1 s, click; the first click after a jump may only hover, so
+# click again if the viewer did not change.
 function Invoke-ViewerClick([int]$x,[int]$y){
     $client=[ViewerInput]::Client($script:viewer)
-    $sent=[ViewerInput]::Click($client[0]+$x,$client[1]+$y)
-    [pscustomobject]@{clientX=$x;clientY=$y;screenX=$client[0]+$x;screenY=$client[1]+$y;inputs=$sent}
+    if(-not $client){return [pscustomobject]@{clientX=$x;clientY=$y;error='no viewer window'}}
+    $screenX=$client[0]+$x;$screenY=$client[1]+$y
+    $sent=[ViewerInput]::Move($screenX,$screenY);Start-Sleep -Milliseconds 1000
+    $before=[ViewerInput]::Capture($client);$presses=1
+    try {
+        $pressedAt=[DateTime]::UtcNow;$sent+=[ViewerInput]::Press($screenX,$screenY)
+        Start-Sleep -Seconds 2
+        $client=[ViewerInput]::Client($script:viewer)
+        if($client -and -not $p.HasExited){
+            $after=[ViewerInput]::Capture($client)
+            try {$difference=[ViewerInput]::Difference($before,$after)} finally {$after.Dispose()}
+            if($difference -lt 0.01){$sent+=[ViewerInput]::Press($screenX,$screenY);$presses=2}
+        }
+    } finally {$before.Dispose()}
+    [pscustomobject]@{clientX=$x;clientY=$y;screenX=$screenX;screenY=$screenY;presses=$presses;inputs=$sent;pressedUTC=$pressedAt.ToString('o')}
 }
 $keyCodes=@{Enter=0x0D;Escape=0x1B;Space=0x20;Backspace=0x08;Shift=0x10;Ctrl=0x11}
-# Space-separated keys; '+' holds modifiers, e.g. 'Shift+Enter', 'Ctrl+S'.
+# Space-separated keys; '+' holds modifiers, e.g. 'Ctrl+S'.
 function Send-Keys([string]$sequence){
     $sent=0;$foreground=[ViewerInput]::Activate($script:viewer)
     if(-not $foreground){
         # A click on the caption activates the viewer without game input.
         $client=[ViewerInput]::Client($script:viewer)
-        $sent+=[ViewerInput]::Click($client[0]+[int]($client[2]/2),$client[1]-12)
+        if($client){$sent+=[ViewerInput]::Click($client[0]+[int]($client[2]/2),$client[1]-12)}
         $foreground=[ViewerInput]::GetForegroundWindow() -eq $script:viewer
     }
     foreach($token in ($sequence -split ' ')){
@@ -168,61 +241,66 @@ function Send-Keys([string]$sequence){
     }
     [pscustomobject]@{keys=$sequence;foreground=$foreground;inputs=$sent}
 }
-function Get-HudDate($lines){
-    foreach($line in $lines){if($line.text -match '\d{1,4}\s*(BC|AD)\b'){return $matches[0]}}
-    return $null
+function Wait-Exit([int]$seconds){
+    $deadline=[DateTime]::UtcNow.AddSeconds($seconds)
+    while(-not $p.HasExited -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 100}
+    if($p.HasExited){$p.ExitTime.ToUniversalTime()}else{$null}
 }
-function Find-FirstPhrase($lines,[string[]]$phrases){
-    foreach($phrase in $phrases){$found=Find-ViewerPhrase $lines $phrase;if($found){return $found}}
-    return $null
-}
+# Quick Start, found a city, end the turn, save and quit, located through
+# the bridge's text trace. Escape quits from the title menu at once, so it
+# is pressed only on the map, exactly once, for the quit prompt.
 function Invoke-Play([datetime]$viewerSeen){
+    $state=[ordered]@{titleFound=$false;mapDate=$null;turnAdvanced=$false;saveExists=$false;exitedThroughGame=$false;secondsConfirmToExit=$null}
     $saves=Join-Path $conquests 'Saves'
-    # The bridge's first-run Preferences clicks come within about 20 s.
-    while(-not $p.HasExited -and ([DateTime]::UtcNow-$viewerSeen).TotalSeconds -lt 25){Start-Sleep -Seconds 1}
-    $settle=Wait-Viewer 3 120;$shot=Save-ViewerStep '00-title'
-    $target=Find-ViewerPhrase $shot.lines 'Quick Start';$closed=@()
-    for($round=1;-not $target -and $round -le 3 -and -not $p.HasExited;$round++){
-        # On its first run the bridge opens Preferences over the title menu;
-        # Escape cancels it. A labelled button is the last resort.
-        $button=if($round -eq 3){Find-FirstPhrase $shot.lines @('Cancel','Close','OK','Accept','Done')}
-        $closed+=if($button){Invoke-ViewerClick $button.x $button.y}else{Send-Keys 'Escape'}
-        $settle=Wait-Viewer 3 60;$shot=Save-ViewerStep "00-title-$round"
-        $target=Find-ViewerPhrase $shot.lines 'Quick Start'
+    # 0. Title menu.
+    $target=$null;$deadline=$viewerSeen.AddSeconds(120)
+    while(-not $p.HasExited -and [DateTime]::UtcNow -lt $deadline){
+        $target=Find-TraceText (Get-TextTrace) '^\s*Quick Start\s*$';if($target){break};Start-Sleep -Seconds 2
     }
-    Add-PlayStep '00-title' @{closedDialogs=$closed} $settle $shot @{ocrAvailable=[bool]$script:ocrEngine;ocrError=$script:ocrError}
-    # 1. Quick Start, then Enter for a dialog or advisor popup at the start.
-    $point=if($target){$target}else{[pscustomobject]@{x=233;y=342;line='renderer coordinates'}}
-    $action=Invoke-ViewerClick $point.x $point.y
-    $clicked=[DateTime]::UtcNow
-    $settle=Wait-Viewer 10 $StepSeconds;$shot=Save-ViewerStep '01a-quick-start'
-    # A still loading screen also settles; the map has the HUD date.
-    while($script:ocrEngine -and -not (Get-HudDate $shot.lines) -and -not $p.HasExited -and
-          ([DateTime]::UtcNow-$clicked).TotalSeconds -lt $StepSeconds){
-        $settle=Wait-Viewer 5 60;$shot=Save-ViewerStep '01a-quick-start'
+    $settle=Wait-Viewer 3 60;$shot=Save-ViewerStep '00-title'
+    Add-PlayStep '00-title' $null $settle $shot @{target=$target}
+    $state.titleFound=[bool]$target
+    if(-not $target -or $p.HasExited){return [pscustomobject]$state}
+    # 1. Quick Start; the map is up once the trace shows the date.
+    $action=Invoke-ViewerClick $target.x $target.y;$clicked=[DateTime]::UtcNow
+    while(-not $p.HasExited -and ([DateTime]::UtcNow-$clicked).TotalSeconds -lt $StepSeconds){
+        $state.mapDate=Get-TraceDate (Get-TextTrace);if($state.mapDate){break};Start-Sleep -Seconds 3
     }
-    Add-PlayStep '01a-quick-start' $action $settle $shot @{target=$point}
-    $action=Send-Keys 'Enter';$settle=Wait-Viewer 3 120;$shot=Save-ViewerStep '01b-enter'
-    Add-PlayStep '01b-enter' $action $settle $shot
-    # 2. Build a city, accept its name, leave the city screen if it opened.
+    $settle=Wait-Viewer 3 120;$shot=Save-ViewerStep '01a-quick-start'
+    Add-PlayStep '01a-quick-start' $action $settle $shot @{date=$state.mapDate}
+    if(-not $state.mapDate -or $p.HasExited){return [pscustomobject]$state}
+    # A dialog or advisor popup at the start takes Enter.
+    for($round=1;$round -le 3 -and -not $p.HasExited;$round++){
+        $trace=Get-TextTrace
+        if($trace.screen -notmatch 'popup|dialog|advisor|message'){break}
+        $action=Send-Keys 'Enter';$settle=Wait-Viewer 3 60;$shot=Save-ViewerStep "01b-popup-$round"
+        Add-PlayStep "01b-popup-$round" $action $settle $shot @{screenBefore=$trace.screen}
+    }
+    # 2. Found a city: B, Enter at the name dialog, Escape if the city screen opened.
     $action=Send-Keys 'B';$settle=Wait-Viewer 3 120;$shot=Save-ViewerStep '02a-build'
     Add-PlayStep '02a-build' $action $settle $shot
     $action=Send-Keys 'Enter';$settle=Wait-Viewer 3 120;$shot=Save-ViewerStep '02b-name'
     Add-PlayStep '02b-name' $action $settle $shot
-    $cityScreen=Find-FirstPhrase $shot.lines @('Production','Shields','Citizens','Corruption')
-    if($cityScreen){
-        $action=Send-Keys 'Escape';$settle=Wait-Viewer 3 120;$shot=Save-ViewerStep '02c-escape'
-        Add-PlayStep '02c-escape' $action $settle $shot @{cityScreen=$cityScreen.line}
+    $trace=Get-TextTrace
+    if($trace.screen -match 'city'){
+        $action=Send-Keys 'Escape';$settle=Wait-Viewer 3 120;$shot=Save-ViewerStep '02c-city-screen'
+        Add-PlayStep '02c-city-screen' $action $settle $shot @{screenBefore=$trace.screen}
     }
-    # 3. End the turn until the HUD date changes.
-    $dateBefore=Get-HudDate $shot.lines;$turned=$false;$attempt=0
-    foreach($keys in 'Enter','Shift+Enter','Space Enter','Space Enter','Shift+Enter'){
-        $attempt++
-        $action=Send-Keys $keys;$settle=Wait-Viewer 5 180;$shot=Save-ViewerStep "03-end-turn-$attempt"
-        $dateAfter=Get-HudDate $shot.lines
-        $turned=[bool]($dateBefore -and $dateAfter -and $dateAfter -ne $dateBefore)
-        Add-PlayStep "03-end-turn-$attempt" $action $settle $shot @{dateBefore=$dateBefore;dateAfter=$dateAfter;turnAdvanced=$turned}
-        if($turned -or $p.HasExited){break}
+    # 3. End the turn: Space gives each unit no orders; Enter once the game
+    # asks to end the turn, or once Space no longer changes anything.
+    $dateBefore=Get-TraceDate (Get-TextTrace);$unchanged=0;$previous=$null
+    for($round=1;$round -le 15 -and -not $state.turnAdvanced -and -not $p.HasExited;$round++){
+        $trace=Get-TextTrace
+        $prompt=@($trace.runs|Where-Object {$_.text -match 'end\W.*turn|turn\W.*end|press\W+enter'}|ForEach-Object {$_.text})
+        $keys=if($prompt.Count -or $unchanged -ge 2){'Enter'}else{'Space'}
+        $action=Send-Keys $keys;$settle=Wait-Viewer 3 $(if($keys -eq 'Enter'){180}else{30})
+        $after=Get-TextTrace;$dateAfter=Get-TraceDate $after
+        $state.turnAdvanced=[bool]($dateBefore -and $dateAfter -and $dateAfter -ne $dateBefore)
+        $texts=(Get-TraceTexts $after) -join "`n"
+        if($keys -eq 'Space' -and $texts -eq $previous -and $settle.difference -lt 0.005){$unchanged++}else{$unchanged=0}
+        $previous=$texts
+        $shot=Save-ViewerStep "03-end-turn-$round"
+        Add-PlayStep "03-end-turn-$round" $action $settle $shot @{prompt=$prompt;dateBefore=$dateBefore;dateAfter=$dateAfter;turnAdvanced=$state.turnAdvanced}
     }
     # 4. Save as wow64test.
     $action=Send-Keys 'Ctrl+S';$settle=Wait-Viewer 3 60;$shot=Save-ViewerStep '04a-save'
@@ -234,32 +312,24 @@ function Invoke-Play([datetime]$viewerSeen){
     $saveFile=Join-Path $saves 'wow64test.SAV'
     $saved=@(Get-ChildItem -LiteralPath $saves -Filter 'wow64test*' -ErrorAction SilentlyContinue|ForEach-Object {
         [pscustomobject]@{name=$_.Name;length=$_.Length;writtenUTC=$_.LastWriteTimeUtc.ToString('o')}})
-    $saveExists=Test-Path -LiteralPath $saveFile
-    Add-PlayStep '04c-saved' $action $settle $shot @{saveFile=$saveFile;saveExists=$saveExists;saved=$saved}
-    # 5. Escape, then Exit/Quit and its confirmation from the game's menu.
-    $action=Send-Keys 'Escape';$settle=Wait-Viewer 3 60;$shot=Save-ViewerStep '05a-escape'
-    Add-PlayStep '05a-escape' $action $settle $shot
-    $confirmedAt=$null;$exitedAt=$null
-    for($round=1;$round -le 3 -and -not $p.HasExited;$round++){
-        $choice=Find-FirstPhrase $shot.lines @('Yes','Quit','Exit')
+    $state.saveExists=Test-Path -LiteralPath $saveFile
+    Add-PlayStep '04c-saved' $action $settle $shot @{saveFile=$saveFile;saveExists=$state.saveExists;saved=$saved}
+    # 5. Escape once for the quit prompt, then its Yes/Quit button.
+    $action=Send-Keys 'Escape';$settle=Wait-Viewer 3 60;$shot=Save-ViewerStep '05a-quit-prompt'
+    Add-PlayStep '05a-quit-prompt' $action $settle $shot
+    $exitedAt=$null;$confirmedAt=$null
+    for($round=1;$round -le 2 -and -not $p.HasExited;$round++){
+        $choice=Find-TraceText (Get-TextTrace) '^\s*(Yes|Quit)\b'
         if(-not $choice){break}
-        $action=Invoke-ViewerClick $choice.x $choice.y;$confirmedAt=[DateTime]::UtcNow
-        $deadline=$confirmedAt.AddSeconds(15)
-        while(-not $p.HasExited -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 100}
-        if($p.HasExited){$exitedAt=[DateTime]::UtcNow;Add-PlayStep "05b-choose-$round" $action $null ([pscustomobject]@{screenshot=$null;client=$null;text=@()}) @{choice=$choice};break}
-        $settle=Wait-Viewer 3 60;$shot=Save-ViewerStep "05b-choose-$round"
-        Add-PlayStep "05b-choose-$round" $action $settle $shot @{choice=$choice}
+        $action=Invoke-ViewerClick $choice.x $choice.y;$confirmedAt=[DateTime]::Parse($action.pressedUTC,$null,[Globalization.DateTimeStyles]::RoundtripKind)
+        $exitedAt=Wait-Exit 60
+        $settle=$null;$shot=if($p.HasExited){[pscustomobject]@{screenshot=$null;client=$null}}else{$settle=Wait-Viewer 3 30;Save-ViewerStep "05b-confirm-$round"}
+        Add-PlayStep "05b-confirm-$round" $action $settle $shot @{choice=$choice;exitedUTC=if($exitedAt){$exitedAt.ToString('o')}else{$null}}
+        if($exitedAt){break}
     }
-    if($confirmedAt -and -not $exitedAt){
-        $deadline=[DateTime]::UtcNow.AddSeconds(60)
-        while(-not $p.HasExited -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 100}
-        if($p.HasExited){$exitedAt=[DateTime]::UtcNow}
-    }
-    [pscustomobject]@{
-        ocrAvailable=[bool]$script:ocrEngine;ocrError=$script:ocrError
-        turnAdvanced=$turned;saveExists=$saveExists;exitedThroughGame=[bool]$exitedAt
-        secondsConfirmToExit=if($confirmedAt -and $exitedAt){[Math]::Round(($exitedAt-$confirmedAt).TotalSeconds,2)}else{$null}
-    }
+    $state.exitedThroughGame=[bool]$exitedAt
+    if($exitedAt -and $confirmedAt){$state.secondsConfirmToExit=[Math]::Round(($exitedAt-$confirmedAt).TotalSeconds,2)}
+    [pscustomobject]$state
 }
 $markers=[ordered]@{
     adapter='using adapter Microsoft Basic Render Driver \(Dx12\)'
@@ -303,6 +373,7 @@ try {
         CIV3R_FONT_CACHE=(Join-Path $renderer 'fonts'); CIV3R_SETTINGS=(Join-Path $settings 'settings.toml')
         RUST_BACKTRACE='1'; WGPU_BACKEND='dx12'; TILE_RENDER_ADAPTER='basic render'
         PROBE_WINE_DEBUG=$WineDebug; WINEDEBUG=$GuestDebug
+        CIV3R_TEXT_TRACE=$(if($Play){'1'}else{''})
     }
     # This runner is a child process; its environment goes to wine-host.exe.
     foreach($key in $environment.Keys){if($environment[$key]){Set-Item -LiteralPath "env:$key" -Value ([string]$environment[$key])}}
@@ -324,6 +395,8 @@ try {
     $window=[ProbeWindow]::FindWindow([IntPtr]::Zero,'Civ III (native renderer)')
     Note "VIEWER_WINDOW handle=$window exited=$($p.HasExited)"
     $nativeModules=if(-not $p.HasExited){Get-NativeUnixlibModules $processId}else{@()}
+    $placement=Get-ViewerPlacement $window
+    Note "VIEWER_PLACEMENT $(ConvertTo-Json $placement -Compress)"
     Note "NATIVE_MODULES $($nativeModules -join ';')"
     # Not $play: PowerShell names ignore case, and that is the -Play switch.
     $playResult=$null
@@ -364,15 +437,17 @@ try {
     if(Test-Path -LiteralPath $bridgeLog){Copy-Item -LiteralPath $bridgeLog -Destination (Join-Path $results 'civ3-bridge.log') -Force}
     $errLines=@($stderr -split "`r?`n"|Where-Object {$_ -match ':err:'}|Select-Object -First 40)
     $unixlibLines=@($stderr -split "`r?`n"|Where-Object {$_ -match 'MISSING_NATIVE_UNIXLIB|NATIVE_UNIXLIB_LOAD_FAILED'})
+    $viewerWindowLines=@($log -split "`r?`n"|Where-Object {$_ -match 'viewer: asking for a|fitting decorated window'})
     $row=[pscustomobject]@{
         name=$ReportName;program=$program;arguments=$arguments;workingDirectory=$conquests
-        environment=$environment;installed=$installed
+        environment=$environment;installed=$installed;settingsFrom=$SettingsFrom;settingsCopied=$settingsCopied
         nativeControl=$nativeControl;negativeControl=$negativeControl
         pid=$processId;sessionId=$sessionId;userInteractive=[Environment]::UserInteractive
         exitCode=$exitCode;exitCodeHex=('0x{0:X8}' -f $exitCode)
         killedAfterTimeout=$timedOut;closeSent=$closeSent;exitedAfterClose=$exitedAfterClose
         secondsToCloseExit=if($closedAt -and $exitedAfterClose){([DateTime]::UtcNow-$closedAt).TotalSeconds}else{$null}
         markers=$found;screenshots=$screenshots;nativeModules=$nativeModules;play=$playResult;playSteps=$playSteps
+        placement=$placement;viewerWindowLines=$viewerWindowLines
         wineLoadMarker=($stdout -match 'WINE_LOAD_APPLICATION status=00000000')
         wineAttachMarker=($stdout -match 'WINE_ATTACH status=00000000')
         firstErrLines=$errLines;unixlibLines=$unixlibLines;steps=$steps

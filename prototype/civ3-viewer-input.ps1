@@ -1,4 +1,4 @@
-# Input, capture and OCR for the Civ3 renderer's native viewer window.
+# Input and capture for the Civ3 renderer's native viewer window.
 # Dot-sourced by run-civ3-renderer.ps1 -Play. Input is ordinary Windows input
 # (SendInput) to the viewer, which forwards it to the game. Coordinates are
 # client-area pixels of the viewer window.
@@ -42,14 +42,18 @@ public static class ViewerInput {
         i.u.mi.dwFlags = flags | 0x8000 | 0x4000;
         return i;
     }
-    // Move, press and release the left button at a screen point.
-    public static uint Click(int x, int y) {
-        uint sent = Send(new INPUT[] { Mouse(x, y, 0x0001) });
-        System.Threading.Thread.Sleep(150);
-        sent += Send(new INPUT[] { Mouse(x, y, 0x0002) });
+    public static uint Move(int x, int y) { return Send(new INPUT[] { Mouse(x, y, 0x0001) }); }
+    // Press and release the left button at a screen point.
+    public static uint Press(int x, int y) {
+        uint sent = Send(new INPUT[] { Mouse(x, y, 0x0002) });
         System.Threading.Thread.Sleep(80);
         sent += Send(new INPUT[] { Mouse(x, y, 0x0004) });
         return sent;
+    }
+    public static uint Click(int x, int y) {
+        uint sent = Move(x, y);
+        System.Threading.Thread.Sleep(150);
+        return sent + Press(x, y);
     }
     static INPUT Key(ushort vk, bool up) {
         INPUT i = new INPUT(); i.type = 1;
@@ -84,73 +88,5 @@ public static class ViewerInput {
             return (double)changed / n;
         } finally { a.UnlockBits(da); b.UnlockBits(db); }
     }
-    public static void SaveScaled(Bitmap b, string path, int scale) {
-        using (Bitmap s = new Bitmap(b.Width * scale, b.Height * scale))
-        using (Graphics g = Graphics.FromImage(s)) {
-            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-            g.DrawImage(b, 0, 0, s.Width, s.Height);
-            s.Save(path, ImageFormat.Png);
-        }
-    }
 }
 "@
-
-$script:ocrEngine=$null;$script:ocrError=''
-try {
-    Add-Type -AssemblyName System.Runtime.WindowsRuntime
-    $null=[Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
-    $null=[Windows.Media.Ocr.OcrResult,Windows.Foundation,ContentType=WindowsRuntime]
-    $null=[Windows.Foundation.IAsyncOperation`1,Windows.Foundation,ContentType=WindowsRuntime]
-    $null=[Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics,ContentType=WindowsRuntime]
-    $null=[Windows.Graphics.Imaging.SoftwareBitmap,Windows.Foundation,ContentType=WindowsRuntime]
-    $null=[Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]
-    $null=[Windows.Storage.Streams.RandomAccessStream,Windows.Storage.Streams,ContentType=WindowsRuntime]
-    $script:asTask=([System.WindowsRuntimeSystemExtensions].GetMethods()|Where-Object {
-        $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1'})[0]
-    $script:ocrEngine=[Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-    if(-not $script:ocrEngine){$script:ocrError='no OCR language'}
-} catch {$script:ocrError=$_.Exception.Message}
-function Wait-WinRT($operation,[Type]$type){
-    $task=$script:asTask.MakeGenericMethod($type).Invoke($null,@($operation))
-    if(-not $task.Wait(30000)){throw 'WinRT operation timed out'}
-    $task.Result
-}
-# Words with client-area boxes. OCR reads a 2x copy; small game text reads better.
-function Read-ViewerText([System.Drawing.Bitmap]$bitmap,[string]$scaledPath){
-    if(-not $script:ocrEngine){return @()}
-    try {
-        [ViewerInput]::SaveScaled($bitmap,$scaledPath,2)
-        $file=Wait-WinRT ([Windows.Storage.StorageFile]::GetFileFromPathAsync($scaledPath)) ([Windows.Storage.StorageFile])
-        $stream=Wait-WinRT ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
-        try {
-            $decoder=Wait-WinRT ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
-            $soft=Wait-WinRT ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-            $result=Wait-WinRT ($script:ocrEngine.RecognizeAsync($soft)) ([Windows.Media.Ocr.OcrResult])
-        } finally {$stream.Dispose()}
-        $lines=@()
-        foreach($line in $result.Lines){
-            $words=@($line.Words|ForEach-Object {
-                [pscustomobject]@{text=$_.Text;x=[int]($_.BoundingRect.X/2);y=[int]($_.BoundingRect.Y/2);w=[int]($_.BoundingRect.Width/2);h=[int]($_.BoundingRect.Height/2)}})
-            $lines+=[pscustomobject]@{text=$line.Text;words=$words}
-        }
-        return $lines
-    } catch {$script:ocrError=$_.Exception.Message;return @()}
-}
-# Client-area centre of the first line containing the phrase's words in order.
-function Find-ViewerPhrase($lines,[string]$phrase){
-    $tokens=@($phrase.ToLowerInvariant() -split '\s+')
-    foreach($line in $lines){
-        $words=@($line.words)
-        for($i=0;$i -le $words.Count-$tokens.Count;$i++){
-            $match=$true
-            for($k=0;$k -lt $tokens.Count;$k++){
-                if(($words[$i+$k].text.ToLowerInvariant() -replace '[^a-z0-9]','') -ne ($tokens[$k] -replace '[^a-z0-9]','')){$match=$false;break}
-            }
-            if(-not $match){continue}
-            $first=$words[$i];$last=$words[$i+$tokens.Count-1]
-            $left=$first.x;$top=[Math]::Min($first.y,$last.y);$right=$last.x+$last.w;$bottom=[Math]::Max($first.y+$first.h,$last.y+$last.h)
-            return [pscustomobject]@{phrase=$phrase;line=$line.text;x=[int](($left+$right)/2);y=[int](($top+$bottom)/2)}
-        }
-    }
-    return $null
-}
