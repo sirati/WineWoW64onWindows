@@ -1,0 +1,62 @@
+Message times, thread TEBs and native library names, 2026-10-30
+
+Candidate: b6b0178ae669763b5ca834445c940cda7b658bb1
+wine-host.exe SHA256:
+3866B331BA0209E952509D5BD37493B94E35F127CF49D3564E0FE0EF7CF20CB4
+
+Luna 6 ran the frozen candidate in a throwaway VM from the Civ3 layer image
+with civ3-renderer 7ec7322 (docs/validation-civ3-renderer-fa562da.txt). The
+primary audited the raw rows. Negative controls ran earlier hosts from the
+same out/ directory.
+
+Fixes in this candidate
+
+- Message times (d52c62d, patch 0011). The renderer bridge dropped its own
+  clicks as "posted 4294967287 ms ago": the in-process server stamped
+  messages from precise interrupt time while clients read the native shared
+  tick count. The server's get_tick_count now uses that tick count, which
+  keeps Wine's guarantee that a received message is not newer than the
+  receiver's GetTickCount. The bridge's first-run Preferences click now
+  opens Preferences.
+- Thread TEBs (85362a3). A new guest thread's TEB was a copy of the first
+  thread's, so ReservedForOle, COM's per-thread data, was shared. A thread
+  that exited freed it under the main thread; Civ3 then faulted in
+  combase CoRegisterInitializeSpy (+0xC286, reading 0xB) when imm32
+  activated the IME window, and Wine's dispatch_user_callback ignored the
+  access violation. New TEBs now start zeroed, as in Wine's init_teb.
+- Native library names (a45c205). The loader refuses a unixlib or companion
+  whose name matches a System32 DLL; Windows would bind other modules'
+  imports of that DLL to it.
+- NtFlushInstructionCache uses Wine's wow64 thunk (e3a6279). A failed guest
+  user callback is reported with its id and arguments (6fd232d).
+
+| Control | Native | Wine | Result |
+|---|---|---|---|
+| msgtime: 400 posted messages, none newer than GetTickCount | pass | 2/2, ahead=0 | de11d96 negative control on fa562da's host: ahead=376, 400, 400 of 400 |
+| comthread: a new thread starts without its creator's ReservedForOle | pass | 2/2 | negative control on de11d96's host: 3/3 fail at step 6 |
+| opengl: opengl32 attaches through opengl32.so | pass | pass | renamed to opengl32.dll: NATIVE_LIBRARY_SHADOWS_SYSTEM_DLL, attach fails (exit 21) |
+| companion names in stock-wine/x86_64-native | | 6 files, no System32 clash | pass |
+| gui_controls32, other seven modes | cursor fails in session 0 only (error 1459) | 14/14 | pass |
+| alignment32 requires FlushInstructionCache to succeed | pass | pass | part of the focused suite |
+
+Regressions on the same candidate
+
+| Suite | Result |
+|---|---|
+| unixlib (2 repeats) | 20/20, including split-so and the lookup-disabled and missing-native negative controls |
+| exception | 8/8 |
+| focused (35 fixture children, 2 repeats) | no failures, crashes or timeouts |
+| cross, unmodified | 29/29; no required failures |
+| unixlib window (session 1, WARP) | 9/9 |
+| Civ3 headless smoke | runs its full 60 s with the Wine load markers |
+| Civ3 renderer (session 1) | adapter, art and viewer markers; exit 0 after WM_CLOSE; no ignored callback exception |
+
+The scripted play run (run-civ3-renderer.ps1 -Play) did not get past the
+title menu: this Windows image has no OCR language, and the script's
+fallback Escape exited the game. The game's remaining err: lines are the
+expected ones plus one "Mismatched CoUninitialize" after the audio driver
+fails, which is open.
+
+Raw evidence: evidence/gui-validation/validation-b6b0178/vm-results/
+civ3-b6b0178-20261030t050131z. Earlier rounds: validation-de11d96 (located
+the combase fault with +seh,+loaddll) and validation-c8af9f9.
