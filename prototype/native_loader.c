@@ -102,6 +102,8 @@ static BOOL native_unixlib_exists(const char *path)
 {
     WCHAR *name=wide_path(path);
     DWORD attributes=name?GetFileAttributesW(name):INVALID_FILE_ATTRIBUTES;
+    TRACE("NATIVE_UNIXLIB_PROBE path=%s resolved=%ls attributes=%08lx error=%lu\n",
+          path,name,attributes,attributes==INVALID_FILE_ATTRIBUTES?GetLastError():0);
     free(name);
     return attributes!=INVALID_FILE_ATTRIBUTES&&!(attributes&FILE_ATTRIBUTE_DIRECTORY);
 }
@@ -268,6 +270,7 @@ NTSTATUS probe_builtin_unixlib(void *module,ULONGLONG *handle)
     {
         add_builtin_module(module,NULL);
         char *mapped_root=mapped_builtin_directory(module);
+        TRACE("NATIVE_UNIXLIB_ROOT module=%p name=%s root=%s\n",module,name,debugstr_a(mapped_root));
         if(mapped_root)
         {
             char *directory=build_path(mapped_root,get_so_dir(IMAGE_FILE_MACHINE_AMD64));
