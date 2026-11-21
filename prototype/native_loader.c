@@ -160,6 +160,21 @@ void probe_loader_init(void)
     dll_path_environment=environment_path(L"WINEDLLPATH");
     build_dir=environment_path(L"WINEBUILDDIR");
     if(!dll_dir)ExitProcess(94);
+    /* The packaged Wine directory contains both the x86 PEs and their
+     * native companions. Keep it in Wine's ordinary path search even when
+     * the mapped image name names another builtin directory or is unavailable.
+     * Preserve the caller's WINEDLLPATH order and the host-directory lookup. */
+    char *packaged=build_path(dll_dir,"stock-wine");
+    if(!packaged)ExitProcess(94);
+    if(dll_path_environment&&dll_path_environment[0])
+    {
+        size_t length=strlen(dll_path_environment),extra=strlen(packaged);
+        char *paths=realloc(dll_path_environment,length+extra+2);
+        if(!paths)ExitProcess(94);
+        paths[length]=';';memcpy(paths+length+1,packaged,extra+1);
+        dll_path_environment=paths;free(packaged);
+    }
+    else {free(dll_path_environment);dll_path_environment=packaged;}
     InitializeCriticalSection(&virtual_mutex);
     for(unsigned i=0;i<ARRAY_SIZE(optional_unixlib_table);i++)
         optional_unixlib_table[i]=(void *)optional_unixlib_call;
