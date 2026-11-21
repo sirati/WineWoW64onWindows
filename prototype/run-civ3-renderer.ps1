@@ -441,7 +441,7 @@ try {
         CIV3R_VIEWER='native'; CIV3R_GAME_RENDER='off'
         CIV3R_FONT_CACHE=(Join-Path $renderer 'fonts'); CIV3R_SETTINGS=(Join-Path $settings 'settings.toml')
         RUST_BACKTRACE='1'; WGPU_BACKEND='dx12'; TILE_RENDER_ADAPTER='basic render'
-        PROBE_WINE_DEBUG=$WineDebug; WINEDEBUG=$GuestDebug
+        WINEDEBUG=(@($WineDebug,$GuestDebug,'trace+winehost')|Where-Object {$_}) -join ','
         CIV3R_TEXT_TRACE=$(if($Play){'1'}else{''}); CIV3R_STARTUP_READY_FILE=$readyFile
     }
     # This runner is a child process; its environment goes to wine-host.exe.
@@ -517,8 +517,8 @@ try {
         secondsToCloseExit=if($closedAt -and $exitedAfterClose){([DateTime]::UtcNow-$closedAt).TotalSeconds}else{$null}
         markers=$found;screenshots=$screenshots;nativeModules=$nativeModules;play=$playResult;playSteps=$playSteps
         placement=$placement;viewerWindowLines=$viewerWindowLines
-        wineLoadMarker=($stdout -match 'WINE_LOAD_APPLICATION status=00000000')
-        wineAttachMarker=($stdout -match 'WINE_ATTACH status=00000000')
+        wineLoadMarker=(($stdout+"`n"+$stderr) -match 'WINE_LOAD_APPLICATION status=00000000')
+        wineAttachMarker=(($stdout+"`n"+$stderr) -match 'WINE_ATTACH status=00000000')
         firstErrLines=$errLines;unixlibLines=$unixlibLines;steps=$steps
         passed=if($Play){[bool]($found['adapter'] -and $found['art'] -and $found['viewer'] -and $playResult -and $playResult.turnAdvanced -and $playResult.saveExists -and $playResult.exitedThroughGame -and $exitCode -eq 0)}
                else{[bool]($found['adapter'] -and $found['art'] -and $found['viewer'] -and $screenshots.Count -gt 0 -and $exitedAfterClose)}

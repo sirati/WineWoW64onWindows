@@ -6,7 +6,8 @@
 #include <windows.h>
 #include <winternl.h>
 #include "wine/debug.h"
-WINE_DEFAULT_DEBUG_CHANNEL(wow);
+WINE_DEFAULT_DEBUG_CHANNEL(winehost);
+WINE_DECLARE_DEBUG_CHANNEL(wow);
 #include "shared.h"
 #include "cpu_host.h"
 #include "native_threads.h"
@@ -445,7 +446,7 @@ static struct guest_module *load_image(const WCHAR *path,const char *name)
     {
         require_image_relocation_policy();
         if(!(nt->FileHeader.Characteristics&IMAGE_FILE_DLL))fail("bootstrap EXE address conflict");
-        printf("BOOTSTRAP_RELOCATE %s canonical=%08lx mapped=%p\n",name,nt->OptionalHeader.ImageBase,base);
+        WINE_TRACE("BOOTSTRAP_RELOCATE %s canonical=%08lx mapped=%p\n",name,nt->OptionalHeader.ImageBase,base);
         NTSTATUS relocation=perform_relocations(base,nt,size);
         if(relocation){SetLastError(RtlNtStatusToDosError(relocation));fail("Wine bootstrap relocation");}
         FlushInstructionCache(GetCurrentProcess(),base,size);
@@ -456,7 +457,7 @@ static struct guest_module *load_image(const WCHAR *path,const char *name)
     m->name=mod_names[nmods++];m->base=base;
     if(!GetFullPathNameW(path,ARRAY_SIZE(m->path),m->path,NULL))fail("module absolute path");
     m->nt=(void *)(base+((IMAGE_DOS_HEADER *)base)->e_lfanew);
-    printf("MAP %s PE32 at %p, %lu bytes\n",name,base,m->nt->OptionalHeader.SizeOfImage);
+    WINE_TRACE("MAP %s PE32 at %p, %lu bytes\n",name,base,m->nt->OptionalHeader.SizeOfImage);
     return m;
 }
 static struct guest_module *load_runtime_image(const WCHAR *relative,const char *name)
@@ -550,7 +551,7 @@ static NTSTATUS WINAPI bind_native_bridge(void *unused,void *image,void *unused2
     {
         *(uint64_t *)handle=(uintptr_t)native_dispatch_table;
         *(DWORD *)dispatcher=(DWORD)(uintptr_t)guest_unix_gate;
-        printf("WINE_BRIDGE_BIND image=%p native_table=%p\n",image,native_dispatch_table);
+        WINE_TRACE("WINE_BRIDGE_BIND image=%p native_table=%p\n",image,native_dispatch_table);
     }
     (void)unused;(void)unused2;(void)size;(void)alloc;(void)protect;
     return STATUS_SUCCESS;
@@ -594,7 +595,7 @@ static struct far_thunk *map_transition_gates(WORD cs)
         far[i].address=(DWORD)(uintptr_t)&trampolines[i];far[i].selector=cs;
         targets[i]=(uintptr_t)native_targets[i];
     }
-    printf("TRANSITION_IMAGE base=%p entries=%p\n",base,entries);
+    WINE_TRACE("TRANSITION_IMAGE base=%p entries=%p\n",base,entries);
     return entries;
 }
 LONG CALLBACK probe_on_exception(EXCEPTION_POINTERS *p)
@@ -659,10 +660,10 @@ static void init_guest_teb(BYTE *image)
       entry.HighWord.Bits.Type=0x13;entry.HighWord.Bits.Dpl=3;entry.HighWord.Bits.Pres=1;entry.HighWord.Bits.Default_Big=1;
       info.Start=8;info.Length=sizeof(entry);info.Entries[0]=entry;
       st=NtSetInformationProcess(GetCurrentProcess(),10,&info,sizeof(info));
-      WINE_TRACE("PROCESS_LDT status=%08lx\n",(unsigned long)st);
+      WINE_TRACE_(wow)("PROCESS_LDT status=%08lx\n",(unsigned long)st);
       { struct { ULONG Selector; LDT_ENTRY Entry; } ti={0}; ti.Selector=0x0f;ti.Entry=entry;
         st=NtSetInformationThread(GetCurrentThread(),6,&ti,sizeof(ti));
-        WINE_TRACE("THREAD_DESCRIPTOR_SET status=%08lx\n",(unsigned long)st); }
+        WINE_TRACE_(wow)("THREAD_DESCRIPTOR_SET status=%08lx\n",(unsigned long)st); }
     }
 }
 static void report_mitigations(void)
@@ -678,7 +679,7 @@ static void report_mitigations(void)
     BOOL c=query(GetCurrentProcess(),ProcessControlFlowGuardPolicy,&cfg,sizeof(cfg));
     BOOL d=query(GetCurrentProcess(),ProcessDynamicCodePolicy,&dyn,sizeof(dyn));
     BOOL s=query(GetCurrentProcess(),(PROCESS_MITIGATION_POLICY)15,&cet,sizeof(cet));
-    printf("MITIGATION DEP=%d enabled=%d permanent=%d ASLR=%d flags=%lx CFG=%d flags=%lx dynamic-code=%d flags=%lx CET=%d flags=%lx\n",
+    WINE_TRACE("MITIGATION DEP=%d enabled=%d permanent=%d ASLR=%d flags=%lx CFG=%d flags=%lx dynamic-code=%d flags=%lx CET=%d flags=%lx\n",
         e,!!(dep.flags&1),dep.permanent,a,aslr,c,cfg,d,dyn,s,cet);
 }
 extern RTL_USER_PROCESS_PARAMETERS32 *probe_initial_process_parameters(const WCHAR *,int,const WCHAR *);
@@ -799,6 +800,7 @@ void probe_check_process_exit(I386_CONTEXT *context,DWORD code)
     teb->Tib.StackBase=(ULONG_PTR)(stack+size);teb->Tib.StackLimit=(ULONG_PTR)stack;
     DWORD *sp=(void *)(stack+size-32);sp[0]=(ULONG_PTR)guest_return_gate;
     cpu.ctx.Eip=(ULONG_PTR)wine_process_exit_lock;cpu.ctx.Esp=(ULONG_PTR)sp;
+    BOOL trace_exit=TRACE_ON(winehost);
     char output[96];int length=snprintf(output,sizeof(output),"GUEST_EXIT code=%lu process_shutdown=1 HOST_RETURNED\r\n",code);
     probe_run32(&cpu.ctx);
     /* Native loader/PEB locks also have to survive termination of host
@@ -810,7 +812,8 @@ void probe_check_process_exit(I386_CONTEXT *context,DWORD code)
     cpu.flags=0;cpu.ctx.Eip=(ULONG_PTR)wine_process_shutdown;cpu.ctx.Esp=(ULONG_PTR)sp;
     sp[0]=(ULONG_PTR)guest_return_gate;
     probe_run32(&cpu.ctx);
-    DWORD written;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),output,length,&written,NULL);
+    DWORD written;
+    if(trace_exit)WriteFile(GetStdHandle(STD_ERROR_HANDLE),output,length,&written,NULL);
     /* Wine RtlExitUserProcess terminates the process after guest shutdown.
      * Native ExitProcess would run a second DLL shutdown after the native
      * window threads have been stopped, potentially waiting on their locks. */
@@ -1104,7 +1107,7 @@ int main(int argc,char **argv)
     probe_debug_options_init(app_name);
     probe_trace=getenv("WINE_PROBE_TRACE")!=0;
     { MEMORY_BASIC_INFORMATION info={0};VirtualQuery((void *)0x400000,&info,sizeof(info));
-      printf("EARLY_IMAGE reservation=%p owner=%p region=%p size=%llx state=%lx type=%lx\n",early_image_reservation,info.AllocationBase,info.BaseAddress,(unsigned long long)info.RegionSize,info.State,info.Type); }
+      WINE_TRACE("EARLY_IMAGE reservation=%p owner=%p region=%p size=%llx state=%lx type=%lx\n",early_image_reservation,info.AllocationBase,info.BaseAddress,(unsigned long long)info.RegionSize,info.State,info.Type); }
     probe_backend_init();
     probe_loader_init();
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
@@ -1118,14 +1121,14 @@ int main(int argc,char **argv)
     native_callback_slot=FlsAlloc(external_guest_thread_end);
     if(native_callback_slot==FLS_OUT_OF_INDEXES)fail("native callback thread state");
     cs32_sel=0x23;ss32_sel=ss;
-    printf("HOST pid=%lu wow64=%d cs=%x ss=%x fs=%x ptrbits=%u\n",GetCurrentProcessId(),wow,cs,ss,fs,(unsigned)(8*sizeof(void *)));
-    { DWORD policy=0;typedef BOOL (WINAPI *query_t)(HANDLE,int,void *,SIZE_T);query_t q=(query_t)GetProcAddress(GetModuleHandleA("kernel32.dll"),"GetProcessMitigationPolicy");BOOL ok=q?q(GetCurrentProcess(),15,&policy,sizeof(policy)):FALSE;printf("SHADOW_STACK query=%d flags=%lx\n",ok,policy); }
+    WINE_TRACE("HOST pid=%lu wow64=%d cs=%x ss=%x fs=%x ptrbits=%u\n",GetCurrentProcessId(),wow,cs,ss,fs,(unsigned)(8*sizeof(void *)));
+    { DWORD policy=0;typedef BOOL (WINAPI *query_t)(HANDLE,int,void *,SIZE_T);query_t q=(query_t)GetProcAddress(GetModuleHandleA("kernel32.dll"),"GetProcessMitigationPolicy");BOOL ok=q?q(GetCurrentProcess(),15,&policy,sizeof(policy)):FALSE;WINE_TRACE("SHADOW_STACK query=%d flags=%lx\n",ok,policy); }
     report_mitigations();
     if(wow||sizeof(void *)!=8) fail("native x64 host required");
     if(argc>1&&!strcmp(argv[1],"--stock"))
     {
         HMODULE m=LoadLibraryA("stock/wow64cpu.dll");
-        printf("STOCK_LOAD handle=%p error=%lu\n",m,GetLastError());return m?0:2;
+        WINE_TRACE("STOCK_LOAD handle=%p error=%lu\n",m,GetLastError());return m?0:2;
     }
     reserve_guest_address_boundaries();
     static void *builtin_table[BRIDGE_COUNT];
@@ -1154,7 +1157,7 @@ int main(int argc,char **argv)
     ((void **)table)[BRIDGE_CREATE_THREAD]=(void *)bridge_create_thread;
     ((void **)table)[BRIDGE_GET_THREAD_EXIT_CODE]=(void *)bridge_get_thread_exit_code;
     ((void **)table)[BRIDGE_THREAD_EXIT]=(void *)bridge_thread_exit;
-    printf("NATIVE64 module=%p table=%p\n",native,table);
+    WINE_TRACE("NATIVE64 module=%p table=%p\n",native,table);
     struct guest_module *nt=load_runtime_image(wine_components?L"stock-wine/ntdll.dll":L"guest/ntdll.dll","ntdll.dll");
     if(wine_components)
     {
@@ -1229,7 +1232,7 @@ int main(int argc,char **argv)
         DWORD heap=call_guest_stdcall(nt,guest_export(nt,"RtlCreateHeap",0),&gate[2],args,6);
         if(!heap) fail("Wine process heap");
         *(DWORD *)(guest_peb+0x18)=heap;
-        printf("WINE_HEAP=%08lx\n",(unsigned long)heap);
+        WINE_TRACE("WINE_HEAP=%08lx\n",(unsigned long)heap);
         call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeInitRuntime",0),&gate[2],NULL,0);
         DWORD loader_args[]={(DWORD)(uintptr_t)nt->base};
         call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeInitLoader",0),&gate[2],loader_args,1);
@@ -1251,7 +1254,7 @@ int main(int argc,char **argv)
         DWORD load_args[]={(DWORD)(uintptr_t)module_path,(DWORD)(uintptr_t)application_base};
         if(early_image_reservation) { VirtualFree(early_image_reservation,0,MEM_RELEASE);early_image_reservation=NULL; }
         DWORD load_status=call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeLoadApplication",0),&gate[2],load_args,2);
-        printf("WINE_LOAD_APPLICATION status=%08lx base=%08lx\n",load_status,*application_base);
+        WINE_TRACE("WINE_LOAD_APPLICATION status=%08lx base=%08lx\n",load_status,*application_base);
         if(load_status)fail("Wine application mapping");
         app->base=(BYTE *)(uintptr_t)*application_base;
         app->nt=(void *)(app->base+((IMAGE_DOS_HEADER *)app->base)->e_lfanew);
@@ -1262,15 +1265,15 @@ int main(int argc,char **argv)
         {
             require_image_relocation_policy();
             DWORD relocation=call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeRelocateApplication",0),&gate[2],NULL,0);
-            printf("WINE_RELOCATE_APPLICATION status=%08lx canonical=%08lx base=%p\n",relocation,app->nt->OptionalHeader.ImageBase,app->base);
+            WINE_TRACE("WINE_RELOCATE_APPLICATION status=%08lx canonical=%08lx base=%p\n",relocation,app->nt->OptionalHeader.ImageBase,app->base);
             if(relocation){SetLastError(RtlNtStatusToDosError(relocation));fail("Wine application relocation");}
             FlushInstructionCache(GetCurrentProcess(),app->base,app->nt->OptionalHeader.SizeOfImage);
         }
         DWORD params_status=call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeInitProcessParameters",0),&gate[2],NULL,0);
-        printf("WINE_PROCESS_PARAMETERS status=%08lx\n",params_status);if(params_status)fail("Wine process parameters initialization");
+        WINE_TRACE("WINE_PROCESS_PARAMETERS status=%08lx\n",params_status);if(params_status)fail("Wine process parameters initialization");
         probe_gui_process_init((PEB32 *)guest_peb);
         DWORD import_status=call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeFixupImports",0),&gate[2],NULL,0);
-        printf("WINE_IMPORTS status=%08lx\n",import_status);if(import_status)fail("Wine application imports");
+        WINE_TRACE("WINE_IMPORTS status=%08lx\n",import_status);if(import_status)fail("Wine application imports");
         wine_thread_attach=guest_export(bootstrap,"ProbeInitThread",0);
         wine_thread_start=guest_export(nt,"RtlUserThreadStart",0);
         wine_initial_apcs=guest_export(bootstrap,"ProbeInitialApcs",0);
@@ -1308,15 +1311,15 @@ int main(int argc,char **argv)
         if(crt)
         {
             DWORD kb_initialized=call_guest_dllmain(kb,&gate[2]);
-            printf("WINE_KERNELBASE_ATTACH=%lu\n",kb_initialized);if(!kb_initialized)fail("Wine kernelbase initialization");
+            WINE_TRACE("WINE_KERNELBASE_ATTACH=%lu\n",kb_initialized);if(!kb_initialized)fail("Wine kernelbase initialization");
             DWORD k32_initialized=call_guest_dllmain(k32,&gate[2]);
-            printf("WINE_KERNEL32_ATTACH=%lu\n",k32_initialized);if(!k32_initialized)fail("Wine kernel32 initialization");
+            WINE_TRACE("WINE_KERNEL32_ATTACH=%lu\n",k32_initialized);if(!k32_initialized)fail("Wine kernel32 initialization");
             DWORD initialized=call_guest_dllmain(crt,&gate[2]);
-            printf("WINE_CRT_ATTACH=%lu\n",initialized);
+            WINE_TRACE("WINE_CRT_ATTACH=%lu\n",initialized);
             if(!initialized) fail("Wine CRT initialization");
         }
         DWORD attach_status=call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeAttachImports",0),&gate[2],NULL,0);
-        printf("WINE_ATTACH status=%08lx\n",attach_status);if(attach_status)fail("Wine application dependency attach");
+        WINE_TRACE("WINE_ATTACH status=%08lx\n",attach_status);if(attach_status)fail("Wine application dependency attach");
     }
     DWORD result=probe_run32(&cpu.ctx);
     if(wine_process_exit_thread&&*wine_process_exit_thread&&*wine_process_exit_thread!=GetCurrentThreadId())Sleep(INFINITE);
@@ -1327,7 +1330,7 @@ int main(int argc,char **argv)
         call_guest_stdcall(crt,guest_export(crt,"fflush",0),&gate[2],flush_args,1);
         call_guest_stdcall(bootstrap,guest_export(bootstrap,"ProbeShutdownProcess",0),&gate[2],NULL,0);
     }
-    printf("GUEST_EXIT code=%lu nt_calls=%lu native_dll_calls=%lu fs_repairs=%lu HOST_RETURNED\n",result,probe_nt_calls,probe_library_calls,probe_fs_repairs);
+    WINE_TRACE("GUEST_EXIT code=%lu nt_calls=%lu native_dll_calls=%lu fs_repairs=%lu HOST_RETURNED\n",result,probe_nt_calls,probe_library_calls,probe_fs_repairs);
     if(wine_components)for(;;)NtTerminateProcess(GetCurrentProcess(),result);
     return result;
 }

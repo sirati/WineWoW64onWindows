@@ -91,6 +91,12 @@ for test in stress32 teb32 tls32 tls_slots32 threads32 files32 dynamic32 file_se
   "$cc32" "${guest_flags[@]}" "${test_flags[@]}" prototype/$test.c -lkernel32 prototype/out/libguest_kernel32.a \
     -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/$test.exe
 done
+for test in quiet32 opengl_import32; do
+  test_flags=();test_libs=()
+  if [[ "$test" == opengl_import32 ]];then test_flags+=( -DTEST_OPENGL_IMPORT );test_libs+=( -lopengl32 );fi
+  "$cc32" "${guest_flags[@]}" "${test_flags[@]}" prototype/quiet32.c "${test_libs[@]}" -lkernel32 \
+    -Wl,--entry,_app_entry@0,--subsystem,console,--image-base,0x400000 -o prototype/out/guest/$test.exe
+done
 for mode in normal laa; do
   test_flags=();test=process_view32
   if [[ "$mode" == laa ]];then test_flags+=( -DTEST_LARGE_ADDRESS_AWARE -Wl,--large-address-aware );test=process_view_laa32;fi

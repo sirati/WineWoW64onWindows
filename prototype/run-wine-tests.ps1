@@ -42,6 +42,7 @@ foreach($name in $Tests) {
         foreach($variable in @('WINE_TEST_OCCUPY_BOOTSTRAP_IMAGE','WINE_TEST_OCCUPY_APPLICATION_IMAGE','WINE_TEST_OCCUPY_APPLICATION_CANONICAL_IMAGE','WINE_TEST_OCCUPY_GATE_BASE')) {
             $p.StartInfo.EnvironmentVariables.Remove($variable)
         }
+        if([IO.Path]::GetFileName($p.StartInfo.FileName) -like 'wine-host*.exe'){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=(@($p.StartInfo.EnvironmentVariables['WINEDEBUG'],'trace+winehost')|Where-Object {$_}) -join ','}
         [void]$p.Start()
         $out=$p.StandardOutput.ReadToEndAsync();$err=$p.StandardError.ReadToEndAsync()
         $timeout=-not $p.WaitForExit($TimeoutSeconds*1000)
@@ -62,7 +63,7 @@ foreach($name in $Tests) {
         if($summary.Success){
             $counts=[pscustomobject]@{executed=[int]$summary.Groups['executed'].Value;todo=[int]$summary.Groups['todo'].Value;flaky=[int]$summary.Groups['flaky'].Value;failures=[int]$summary.Groups['failures'].Value;skipped=[int]$summary.Groups['skipped'].Value}
         }
-        $loaded=$native -or $stdout -match 'WINE_LOAD_APPLICATION status=00000000'
+        $loaded=$native -or ($stdout+"`n"+$stderr) -match 'WINE_LOAD_APPLICATION status=00000000'
         $completed=-not $timeout -and $summary.Success -and $loaded
         $row=[pscustomobject]@{name=$name;native=$native;pid=$p.Id;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;workingDirectory=$p.StartInfo.WorkingDirectory;fixture=$executable;fixtureSHA256=$test.sha256;platform=$p.StartInfo.EnvironmentVariables['WINETEST_PLATFORM'];trace=[string]$p.StartInfo.EnvironmentVariables['WINE_PROBE_TRACE'];exitCode=$p.ExitCode;timedOut=$timeout;timeoutSeconds=$TimeoutSeconds;wineLoadMarker=$loaded;completed=$completed;passed=($completed -and $p.ExitCode -eq 0 -and $counts.failures -eq 0);counts=$counts;unsupportedServices=@([regex]::Matches($stderr,'UNIMPLEMENTED NT service [0-9a-fA-F]+')|ForEach-Object {$_.Value}|Sort-Object -Unique);stdoutPath="$mode-$name.stdout.txt";stderrPath="$mode-$name.stderr.txt"}
         [IO.File]::WriteAllText("$results/$mode-$name.stdout.txt",$stdout)

@@ -10,6 +10,7 @@ function New-Process($program,$arguments) {
     $p.StartInfo.WorkingDirectory=(Get-Location).Path
     $p.StartInfo.Arguments=$arguments
     $p.StartInfo.UseShellExecute=$false;$p.StartInfo.RedirectStandardOutput=$true;$p.StartInfo.RedirectStandardError=$true
+    if([IO.Path]::GetFileName($p.StartInfo.FileName) -like 'wine-host*.exe'){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=(@($p.StartInfo.EnvironmentVariables['WINEDEBUG'],'trace+winehost')|Where-Object {$_}) -join ','}
     [void]$p.Start();return $p
 }
 $rows=@()
@@ -34,7 +35,7 @@ foreach($native in @($true,$false)) {
             if($timeout){$guest.Kill();$guest.WaitForExit()}
             $peerTimeout=-not $peer.WaitForExit(3000)
             if($peerTimeout){$peer.Kill();$peer.WaitForExit()}
-            $loaderMatches=$native -or $out.Result -match 'WINE_LOAD_APPLICATION status=00000000'
+            $loaderMatches=$native -or ($out.Result+"`n"+$err.Result) -match 'WINE_LOAD_APPLICATION status=00000000'
             $rows+=[pscustomobject]@{probe=$guestExe;pid=$guest.Id;program=$guest.StartInfo.FileName;arguments=$guest.StartInfo.Arguments;workingDirectory=$guest.StartInfo.WorkingDirectory;peerPid=$peer.Id;peerProgram=$peer.StartInfo.FileName;peerArguments=$peer.StartInfo.Arguments;native=$native;iteration=$i;exitCode=$guest.ExitCode;peerExitCode=$peer.ExitCode;timedOut=($timeout -or $peerTimeout);guestTimedOut=$timeout;peerTimedOut=$peerTimeout;passed=(-not $timeout -and -not $peerTimeout -and $guest.ExitCode -eq 0 -and $peer.ExitCode -eq 0 -and $out.Result -match $expectedMessage -and $loaderMatches);stdout=$out.Result;stderr=$err.Result;peerStdout=($ready.Result+"`r`n"+$peerOutput.Result);peerStderr=$peerError.Result}
         } finally {
             foreach($p in @($guest,$peer)){if($p){if(-not $p.HasExited){$p.Kill();$p.WaitForExit()};$p.Dispose()}}

@@ -53,7 +53,9 @@ integration. Extracted upstream routines and generated headers are build
 outputs rather than separately maintained implementations.
 
 Host and guest Wine code use `WINEDEBUG` with Wine's original channel parser.
-Routine NT service returns are silent by default. Set `WINEDEBUG=trace+wow`
+Host startup, mapping and exit diagnostics are also silent by default; use
+`WINEDEBUG=trace+winehost` to enable them. Guest stdout and stderr pass through
+unchanged. Set `WINEDEBUG=trace+wow`
 to trace service calls and results, `warn+wow` for unsupported NT services,
 `trace+winsock` for device IOCTL calls, or `warn+module` for native library
 load warnings. Wine's class and channel exclusions, such as

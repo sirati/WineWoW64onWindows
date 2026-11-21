@@ -30,6 +30,7 @@ try {
                     $p.StartInfo.UseShellExecute=$false
                     $p.StartInfo.RedirectStandardOutput=$true;$p.StartInfo.RedirectStandardError=$true
                     $started=[DateTime]::UtcNow
+                    if([IO.Path]::GetFileName($p.StartInfo.FileName) -like 'wine-host*.exe'){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=(@($p.StartInfo.EnvironmentVariables['WINEDEBUG'],'trace+winehost')|Where-Object {$_}) -join ','}
                     [void]$p.Start();$childPid=$p.Id;$childSessionId=$p.SessionId
                     $out=$p.StandardOutput.ReadToEndAsync();$err=$p.StandardError.ReadToEndAsync()
                     $limit=if($mode -eq 'wait'){90}else{45}
@@ -47,8 +48,8 @@ try {
                     $markerMatches=$stdout -match $marker
                     $frames=if($markerMatches){[int]$Matches[1]}else{0}
                     $expected=if($mode -eq 'wait'){0}elseif($mode -eq 'exit-live'){37}else{38}
-                    $load=$native -or $stdout -match 'WINE_LOAD_APPLICATION status=00000000'
-                    $returned=$native -or $stdout -match "(?m)^GUEST_EXIT code=$expected .*HOST_RETURNED\r?$"
+                    $load=$native -or ($stdout+"`n"+$stderr) -match 'WINE_LOAD_APPLICATION status=00000000'
+                    $returned=$native -or ($stdout+"`n"+$stderr) -match "(?m)(?:^| )GUEST_EXIT code=$expected .*HOST_RETURNED\r?$"
                     $minimum=if($mode -eq 'wait'){180}else{30}
                     $passed=-not $timedOut -and $exit -eq $expected -and $markerMatches -and $frames -ge $minimum -and $load -and $returned -and $stdout -notmatch 'WINDOW_FAILED'
                     $row=[pscustomobject]@{name=$name;native=$native;mode=$mode;iteration=$i;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;workingDirectory=$fixture;wineDllPath=$env:WINEDLLPATH;wineDllOverrides=$env:WINEDLLOVERRIDES;wgpuBackend=$env:WGPU_BACKEND;forceFallbackAdapter=$env:WGPU_FORCE_FALLBACK_ADAPTER;rustBacktrace=$env:RUST_BACKTRACE;sessionId=$childSessionId;userInteractive=[Environment]::UserInteractive;pid=$childPid;exitCode=$exit;expectedExit=$expected;timedOut=$timedOut;timeoutSeconds=$limit;elapsedSeconds=$elapsed;marker=$marker;markerMatches=$markerMatches;frames=$frames;wineLoadMarker=$load;hostReturnMarker=$returned;passed=$passed;stdout=$stdout;stderr=$stderr}

@@ -38,9 +38,9 @@ foreach($mode in $Modes) {
             $p.StartInfo.WorkingDirectory=$out
             $p.StartInfo.UseShellExecute=$false
             $p.StartInfo.RedirectStandardOutput=$true;$p.StartInfo.RedirectStandardError=$true
-            # Host-side Wine code (win32u, server) and the x86 Wine DLLs log separately.
-            if($WineDebug -and -not $native){$p.StartInfo.EnvironmentVariables['PROBE_WINE_DEBUG']=$WineDebug}
-            if($GuestDebug -and -not $native){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=$GuestDebug}
+            # Host-side Wine code and the x86 Wine DLLs share WINEDEBUG channels.
+            if(($WineDebug -or $GuestDebug) -and -not $native){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=(@($WineDebug,$GuestDebug)|Where-Object {$_}) -join ','}
+            if([IO.Path]::GetFileName($p.StartInfo.FileName) -like 'wine-host*.exe'){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=(@($p.StartInfo.EnvironmentVariables['WINEDEBUG'],'trace+winehost')|Where-Object {$_}) -join ','}
             [void]$p.Start()
             $childPid=$p.Id;$sessionId=$p.SessionId
             $outTask=$p.StandardOutput.ReadToEndAsync();$errTask=$p.StandardError.ReadToEndAsync()
@@ -56,8 +56,8 @@ foreach($mode in $Modes) {
             $stderr=[string]$errTask.GetAwaiter().GetResult()
             $marker="(?m)^GUI_OK mode=$mode .+\r?$"
             $markerMatches=$stdout -match $marker
-            $loadMarker=$native -or $stdout -match 'WINE_LOAD_APPLICATION status=00000000'
-            $hostReturn=$native -or $stdout -match '(?m)^GUEST_EXIT code=0 .*HOST_RETURNED'
+            $loadMarker=$native -or ($stdout+"`n"+$stderr) -match 'WINE_LOAD_APPLICATION status=00000000'
+            $hostReturn=$native -or ($stdout+"`n"+$stderr) -match '(?m)(?:^| )GUEST_EXIT code=0 .*HOST_RETURNED'
             $name=if($native){"native-$mode"}else{"wine-$mode-$iteration"}
             $rows+=[pscustomobject]@{
                 name=$name;mode=$mode;native=$native;iteration=$iteration

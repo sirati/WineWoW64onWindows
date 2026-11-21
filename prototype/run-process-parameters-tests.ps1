@@ -37,6 +37,7 @@ foreach($mode in $modes) {
             $p.StartInfo.EnvironmentVariables['WINE_PROCESS_PARAMS_TEST']=$testEnvironment
             $p.StartInfo.EnvironmentVariables.Remove('WINE_NATIVE_BRIDGE')
             $started=[DateTime]::UtcNow
+            if([IO.Path]::GetFileName($p.StartInfo.FileName) -like 'wine-host*.exe'){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=(@($p.StartInfo.EnvironmentVariables['WINEDEBUG'],'trace+winehost')|Where-Object {$_}) -join ','}
             [void]$p.Start();$childPid=$p.Id
             $out=$p.StandardOutput.ReadToEndAsync();$err=$p.StandardError.ReadToEndAsync()
             $timedOut=-not $p.WaitForExit(30000)
@@ -48,7 +49,7 @@ foreach($mode in $modes) {
             $expected=if($negative){73}else{0}
             $expectedMarker=if($negative){'PROCESS_PARAMETERS_FAILED code=00000049'}else{$marker}
             $markerMatches=$stdout -match ('(?m)^'+[regex]::Escape($expectedMarker)+'\r?$')
-            $load=$mode -eq 'native' -or $stdout -match 'WINE_LOAD_APPLICATION status=00000000'
+            $load=$mode -eq 'native' -or ($stdout+"`n"+$stderr) -match 'WINE_LOAD_APPLICATION status=00000000'
             $passed=-not $timedOut -and $exitCode -eq $expected -and $markerMatches -and $load
             $row=[pscustomobject]@{name=$name;mode=$mode;negativeControl=$negative;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;workingDirectory=$workingDirectory;fixture=$image;fixtureSHA256=$fixtureHash;environmentValue=$testEnvironment;pid=$childPid;exitCode=$exitCode;expectedExit=$expected;timedOut=$timedOut;timeoutSeconds=30;elapsedSeconds=$elapsed;marker=$expectedMarker;markerMatches=$markerMatches;wineLoadMarker=$load;passed=$passed;stdout=$stdout;stderr=$stderr}
             $rows.Add($row)

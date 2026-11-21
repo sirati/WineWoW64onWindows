@@ -17,6 +17,7 @@ foreach($program in $Programs) {
             $p.StartInfo.Arguments=if($native){$guestArguments}else{"--wine-components guest/$program.exe $guestArguments"}
             $p.StartInfo.WorkingDirectory=(Get-Location).Path
             $p.StartInfo.UseShellExecute=$false;$p.StartInfo.RedirectStandardOutput=$true;$p.StartInfo.RedirectStandardError=$true
+            if([IO.Path]::GetFileName($p.StartInfo.FileName) -like 'wine-host*.exe'){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=(@($p.StartInfo.EnvironmentVariables['WINEDEBUG'],'trace+winehost')|Where-Object {$_}) -join ','}
             [void]$p.Start();$out=$p.StandardOutput.ReadToEndAsync();$err=$p.StandardError.ReadToEndAsync()
             $timeout=-not $p.WaitForExit(15000)
             if($timeout){
@@ -64,7 +65,7 @@ foreach($program in $Programs) {
                 elseif($guestArguments -match '(^|\s)--spin($|\s)'){$modeMatches=$modeMatches -and $out.Result -match '(?m)^mode=worker-spin\r?$' -and $out.Result -match 'phase=spinning-main'}
                 else{$modeMatches=$modeMatches -and $out.Result -match '(?m)^mode=worker\r?$'}
                 if(-not $native -and $guestArguments -notmatch '(^|\s)--main($|\s)') {
-                    $modeMatches=$modeMatches -and $out.Result -match '(?m)^GUEST_EXIT code=37 process_shutdown=1 HOST_RETURNED\r?$'
+                    $modeMatches=$modeMatches -and ($out.Result+"`n"+$err.Result) -match '(?m)(?:^| )GUEST_EXIT code=37 process_shutdown=1 HOST_RETURNED\r?$'
                 }
             }
             if($program -eq 'threadpool_wait32') {
@@ -80,8 +81,8 @@ foreach($program in $Programs) {
                              $out.Result -match '(?m)^rounds=00000008\r?$' -and
                              $out.Result -match '(?m)^completed.waiters=00000040\r?$'
             }
-            $loaderMatches=$native -or ($out.Result -match 'WINE_LOAD_APPLICATION status=00000000' -and
-                                       $out.Result -match "GUEST_EXIT code=$expectedExit .*HOST_RETURNED")
+            $loaderMatches=$native -or (($out.Result+"`n"+$err.Result) -match 'WINE_LOAD_APPLICATION status=00000000' -and
+                                       ($out.Result+"`n"+$err.Result) -match "GUEST_EXIT code=$expectedExit .*HOST_RETURNED")
             $rows+=[pscustomobject]@{probe=$program;native=$native;iteration=$i;pid=$p.Id;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;workingDirectory=$p.StartInfo.WorkingDirectory;exitCode=$p.ExitCode;expectedExit=$expectedExit;timedOut=$timeout;timeoutSeconds=15;markerPattern=$pattern;modeMatches=$modeMatches;loaderMatches=$loaderMatches;passed=(-not $timeout -and $p.ExitCode -eq $expectedExit -and $out.Result -match $pattern -and $modeMatches -and $loaderMatches);stdout=$out.Result;stderr=$err.Result}
             $p.Dispose()
             if($StopOnFailure -and -not $rows[-1].passed){break}

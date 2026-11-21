@@ -5,7 +5,7 @@
 #include <string.h>
 #include <windows.h>
 #include "wine/debug.h"
-static unsigned char default_flags=(1<<__WINE_DBCL_ERR)|(1<<__WINE_DBCL_FIXME);
+static unsigned char default_flags;
 static int nb_debug_options=-1,options_size;
 static struct __wine_debug_channel *debug_options;
 static const char *const debug_classes[]={"fixme","err","warn","trace"};
@@ -15,6 +15,9 @@ static const char *debug_app_name="";
 static void init_options(void)
 {
     const char *options=getenv("WINEDEBUG");
+    /* Keep the port's quiet launch default. Explicit WINEDEBUG options use
+     * Wine's normal initial classes and its unchanged option parser. */
+    default_flags=options?(1<<__WINE_DBCL_ERR)|(1<<__WINE_DBCL_FIXME):0;
     nb_debug_options=0;
     if(options)parse_options(options,debug_app_name);
 }

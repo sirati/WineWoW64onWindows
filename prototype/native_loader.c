@@ -88,6 +88,7 @@ static void *native_dlopen(const char *path,int flags)
     WCHAR *name=wide_path(path);(void)flags;
     /* No Wine guest DLL is passed to the Windows loader. */
     HMODULE module=name?probe_load_native_library(name):NULL;
+    TRACE("NATIVE_UNIXLIB path=%s module=%p error=%lu\n",path,module,module?0:GetLastError());
     if(!module)WARN("NATIVE_UNIXLIB_LOAD_FAILED path=%s error=%lu\n",path,GetLastError());
     free(name);return module;
 }
@@ -289,6 +290,7 @@ NTSTATUS probe_builtin_unixlib(void *module,ULONGLONG *handle)
         free(root);
     }
     NTSTATUS status=get_builtin_unix_funcs(module,TRUE,&funcs);
+    TRACE("NATIVE_UNIXLIB_TABLE module=%p name=%s optional=%u funcs=%p status=%08lx\n",module,name,optional,funcs,status);
     LeaveCriticalSection(&virtual_mutex);
     if(!status)*handle=(ULONG_PTR)funcs;
     else if(status==STATUS_DLL_NOT_FOUND && optional && optional_unixlib_initialized)

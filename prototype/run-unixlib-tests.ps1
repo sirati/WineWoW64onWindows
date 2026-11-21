@@ -28,6 +28,7 @@ function Invoke-Control([string]$name,[string]$program,[string]$arguments,[strin
         $p.StartInfo.EnvironmentVariables.Remove('WINEBUILDDIR')
         if($buildDirectory){$p.StartInfo.EnvironmentVariables['WINEBUILDDIR']=$buildDirectory}
         if($wineDebug){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=$wineDebug}
+        if([IO.Path]::GetFileName($p.StartInfo.FileName) -like 'wine-host*.exe'){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=(@($p.StartInfo.EnvironmentVariables['WINEDEBUG'],'trace+winehost')|Where-Object {$_}) -join ','}
         [void]$p.Start();$pidValue=$p.Id
         $out=$p.StandardOutput.ReadToEndAsync();$err=$p.StandardError.ReadToEndAsync()
         $timeout=-not $p.WaitForExit(30000)
@@ -35,9 +36,9 @@ function Invoke-Control([string]$name,[string]$program,[string]$arguments,[strin
         $stdout=[string]$out.GetAwaiter().GetResult();$stderr=[string]$err.GetAwaiter().GetResult()
         $exit=[int]$p.ExitCode
         $markerMatched=$stdout -match $marker
-        $loaded=$stdout -match 'WINE_LOAD_APPLICATION status=00000000'
+        $loaded=($stdout+"`n"+$stderr) -match 'WINE_LOAD_APPLICATION status=00000000'
         $passed=-not $timeout -and $exit -eq $expectedExit -and $markerMatched -and $loaded
-        if($success){$passed=$passed -and $stdout -match '(?m)^GUEST_EXIT code=0 .*HOST_RETURNED\r?$' -and $stdout -notmatch 'ECHO_FAILED'}
+        if($success){$passed=$passed -and ($stdout+"`n"+$stderr) -match '(?m)(?:^| )GUEST_EXIT code=0 .*HOST_RETURNED\r?$' -and $stdout -notmatch 'ECHO_FAILED'}
         if($stderrMarker){$passed=$passed -and $stderr -match $stderrMarker}
         $row=[pscustomobject]@{name=$name;program=$program;arguments=$arguments;workingDirectory=$cwd;pid=$pidValue;wineDllPath=$paths;wineBuildDirectory=$buildDirectory;wineDllOverrides=$env:WINEDLLOVERRIDES;wineDebug=$p.StartInfo.EnvironmentVariables['WINEDEBUG'];expectedExit=$expectedExit;exitCode=$exit;timedOut=$timeout;marker=$marker;markerMatched=$markerMatched;stderrMarker=$stderrMarker;wineLoadMarker=$loaded;passed=$passed;stdout=$stdout;stderr=$stderr}
         $rows.Add($row)

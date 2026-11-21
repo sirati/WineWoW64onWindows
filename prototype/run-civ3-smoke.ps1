@@ -31,10 +31,10 @@ try {
     $p.StartInfo.CreateNoWindow=$true
     $p.StartInfo.RedirectStandardOutput=$true
     $p.StartInfo.RedirectStandardError=$true
-    # Host-side Wine code (win32u, server) and the x86 Wine DLLs log separately.
-    if($WineDebug){$p.StartInfo.EnvironmentVariables['PROBE_WINE_DEBUG']=$WineDebug}
-    if($GuestDebug){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=$GuestDebug}
-    if($HostTrace){$p.StartInfo.EnvironmentVariables['WINE_PROBE_TRACE']='1'}
+    # Host-side Wine code and the x86 Wine DLLs share WINEDEBUG channels.
+    if($WineDebug -or $GuestDebug){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=(@($WineDebug,$GuestDebug)|Where-Object {$_}) -join ','}
+    if($HostTrace){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=(@($p.StartInfo.EnvironmentVariables['WINEDEBUG'],'trace+wow','trace+winsock','trace+module')|Where-Object {$_}) -join ','}
+    if([IO.Path]::GetFileName($p.StartInfo.FileName) -like 'wine-host*.exe'){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=(@($p.StartInfo.EnvironmentVariables['WINEDEBUG'],'trace+winehost')|Where-Object {$_}) -join ','}
     [void]$p.Start();$pidValue=$p.Id;$sessionId=$p.SessionId
     $outTask=$p.StandardOutput.ReadToEndAsync();$errTask=$p.StandardError.ReadToEndAsync()
     $timedOut=-not $p.WaitForExit($Seconds*1000)
@@ -50,9 +50,9 @@ try {
         workingDirectory=$p.StartInfo.WorkingDirectory;pid=$pidValue;sessionId=$sessionId
         timeoutSeconds=$Seconds;exitCode=$exitCode;timedOut=$timedOut
         wineDebug=$WineDebug;guestDebug=$GuestDebug;hostTrace=[bool]$HostTrace
-        wineLoadMarker=($stdout -match 'WINE_LOAD_APPLICATION status=00000000')
-        wineImportsMarker=($stdout -match 'WINE_IMPORTS status=00000000')
-        wineAttachMarker=($stdout -match 'WINE_ATTACH status=00000000')
+        wineLoadMarker=(($stdout+"`n"+$stderr) -match 'WINE_LOAD_APPLICATION status=00000000')
+        wineImportsMarker=(($stdout+"`n"+$stderr) -match 'WINE_IMPORTS status=00000000')
+        wineAttachMarker=(($stdout+"`n"+$stderr) -match 'WINE_ATTACH status=00000000')
         stdout=$stdout;stderr=$stderr
     }
     [IO.File]::WriteAllText((Join-Path $results "$ReportName.json"),(ConvertTo-Json $row -Depth 6),$utf8)

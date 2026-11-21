@@ -7,6 +7,8 @@
 #include <winternl.h>
 #include "ddk/wdm.h"
 #include <cpuid.h>
+#include "wine/debug.h"
+WINE_DEFAULT_DEBUG_CHANNEL(winehost);
 #include "cpu_host.h"
 static struct probe_shared_data shared;
 struct probe_shared_data *user_shared_data=&shared;
@@ -39,7 +41,7 @@ void probe_xstate_init(void)
     }
     xstate_size=size-sizeof(XSAVE_FORMAT);
     xstate_extended_features=probe_xsave_mask&~(UINT64)3;
-    printf("XSTATE mask=%llx size=%u compact-contexts=%u\n",probe_xsave_mask,size,shared.XState.CompactionEnabled);
+    TRACE("XSTATE mask=%llx size=%u compact-contexts=%u\n",probe_xsave_mask,size,shared.XState.CompactionEnabled);
 }
 void probe_cpu_prepare(struct guest_cpu *cpu)
 {

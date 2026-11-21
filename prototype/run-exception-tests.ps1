@@ -15,12 +15,13 @@ $marker=switch -Regex ($guest) {
     '^lifecycle32$' {'lifecycle32: independent static TLS, DLL/TLS notifications, FLS and ExitThread cleanup passed'}
     default {throw "Unknown exception fixture: $guest"}
 }
+if([IO.Path]::GetFileName($p.StartInfo.FileName) -like 'wine-host*.exe'){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=(@($p.StartInfo.EnvironmentVariables['WINEDEBUG'],'trace+winehost')|Where-Object {$_}) -join ','}
 [void]$p.Start();$out=$p.StandardOutput.ReadToEndAsync();$err=$p.StandardError.ReadToEndAsync()
 $timeout=-not $p.WaitForExit(10000)
 if($timeout){$p.Kill();$p.WaitForExit()}
 $markerMatches=$out.Result -match ('(?m)^'+[regex]::Escape($marker)+'\r?$')
-$load=$native -or $out.Result -match 'WINE_LOAD_APPLICATION status=00000000'
-$returned=$native -or $out.Result -match '(?m)^GUEST_EXIT code=0 .*HOST_RETURNED\r?$'
+$load=$native -or ($out.Result+"`n"+$err.Result) -match 'WINE_LOAD_APPLICATION status=00000000'
+$returned=$native -or ($out.Result+"`n"+$err.Result) -match '(?m)(?:^| )GUEST_EXIT code=0 .*HOST_RETURNED\r?$'
 $row=[pscustomobject]@{name=$name;pid=$p.Id;program=$p.StartInfo.FileName;arguments=$p.StartInfo.Arguments;workingDirectory=$p.StartInfo.WorkingDirectory;exitCode=$p.ExitCode;timedOut=$timeout;required=$required;marker=$marker;markerMatches=$markerMatches;wineLoadMarker=$load;hostReturnMarker=$returned;passed=(-not $timeout -and $p.ExitCode -eq 0 -and $markerMatches -and $load -and $returned);stdout=$out.Result;stderr=$err.Result}
 $p.Dispose();return $row
 }
