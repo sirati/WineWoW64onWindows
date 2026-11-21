@@ -5,22 +5,33 @@
 #include <string.h>
 #include <windows.h>
 #include "wine/debug.h"
-static unsigned char default_flags;
-static int nb_debug_options,options_size;
+static unsigned char default_flags=(1<<__WINE_DBCL_ERR)|(1<<__WINE_DBCL_FIXME);
+static int nb_debug_options=-1,options_size;
 static struct __wine_debug_channel *debug_options;
 static const char *const debug_classes[]={"fixme","err","warn","trace"};
+static const char *debug_app_name="";
 #define strcasecmp _stricmp
 #include "out/wine-debug-options.inc"
-void probe_debug_init(void *peb,const char *app_name)
+static void init_options(void)
 {
     const char *options=getenv("WINEDEBUG");
-    if(!options)return;
-    default_flags=(1<<__WINE_DBCL_ERR)|(1<<__WINE_DBCL_FIXME);
-    parse_options(options,app_name);
+    nb_debug_options=0;
+    if(options)parse_options(options,debug_app_name);
+}
+#include "out/wine-debug-channel.inc"
+void probe_debug_options_init(const char *app_name)
+{
+    debug_app_name=app_name;
+    init_options();
+}
+void probe_debug_init(void *peb,const char *app_name)
+{
+    (void)app_name;
+    if(nb_debug_options==-1)init_options();
     if((nb_debug_options+1)*sizeof(*debug_options)>4096)
     {fputs("Wine debug option table exceeds its PEB page\n",stderr);ExitProcess(94);}
     struct __wine_debug_channel *table=(void *)((BYTE *)peb+4096);
-    memcpy(table,debug_options,nb_debug_options*sizeof(*table));
+    if(nb_debug_options)memcpy(table,debug_options,nb_debug_options*sizeof(*table));
     table[nb_debug_options]=(struct __wine_debug_channel){default_flags};
-    free(debug_options);debug_options=NULL;nb_debug_options=options_size=0;
+    /* Native Wine code uses the same immutable options for this process. */
 }

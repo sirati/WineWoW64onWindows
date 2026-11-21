@@ -86,3 +86,5 @@ Path('prototype/out/wine-native-dos-path.inc').write_text(function(environment, 
 debug = (root / 'debug.c').read_text()
 Path('prototype/out/wine-debug-options.inc').write_text('\n\n'.join(
     function(debug, name) for name in ('add_option', 'parse_options')) + '\n')
+Path('prototype/out/wine-debug-channel.inc').write_text(
+    function(debug, '__wine_dbg_get_channel_flags') + '\n')

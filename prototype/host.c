@@ -1091,6 +1091,12 @@ int main(int argc,char **argv)
     _Static_assert(offsetof(typeof(cpu),ctx)==4,"Wine context layout");
     setvbuf(stdout,0,_IONBF,0);setvbuf(stderr,0,_IONBF,0);
     if(!probe_child_bootstrap_init())fail("Wine child startup transport");
+    BOOL child_process=(argc>1&&!strcmp(argv[1],"--wine-child"));
+    BOOL wine_components=child_process||(argc>1&&!strcmp(argv[1],"--wine-components"));
+    const char *app_arg=wine_components ? (argc>2?argv[2]:"guest/hello32.exe") : (argc>1?argv[1]:"guest/hello32.exe");
+    const char *app_name=app_arg;for(const char *p=app_arg;*p;p++)if(*p=='/'||*p=='\\')app_name=p+1;
+    extern void probe_debug_options_init(const char *);
+    probe_debug_options_init(app_name);
     probe_trace=getenv("WINE_PROBE_TRACE")!=0;
     { MEMORY_BASIC_INFORMATION info={0};VirtualQuery((void *)0x400000,&info,sizeof(info));
       printf("EARLY_IMAGE reservation=%p owner=%p region=%p size=%llx state=%lx type=%lx\n",early_image_reservation,info.AllocationBase,info.BaseAddress,(unsigned long long)info.RegionSize,info.State,info.Type); }
@@ -1116,10 +1122,7 @@ int main(int argc,char **argv)
         HMODULE m=LoadLibraryA("stock/wow64cpu.dll");
         printf("STOCK_LOAD handle=%p error=%lu\n",m,GetLastError());return m?0:2;
     }
-    BOOL child_process=(argc>1&&!strcmp(argv[1],"--wine-child"));
-    BOOL wine_components=child_process||(argc>1&&!strcmp(argv[1],"--wine-components"));
     reserve_guest_address_boundaries();
-    const char *app_arg=wine_components ? (argc>2?argv[2]:"guest/hello32.exe") : (argc>1?argv[1]:"guest/hello32.exe");
     static void *builtin_table[BRIDGE_COUNT];
     for(unsigned i=0;i<BRIDGE_COUNT;i++)builtin_table[i]=(void *)bridge_unavailable;
     builtin_table[BRIDGE_GET_STD_HANDLE]=(void *)bridge_std_handle;
@@ -1163,7 +1166,6 @@ int main(int argc,char **argv)
     struct guest_module *crt=wine_components?load_runtime_image(L"stock-wine/msvcrt.dll","msvcrt.dll"):0;
     struct guest_module *bridge=wine_components?load_runtime_image(L"guest/bridge_kernel32.dll","bridge_kernel32.dll"):0;
     struct guest_module *bootstrap=wine_components?load_runtime_image(L"guest/bootstrap32.dll","bootstrap32.dll"):0;
-    const char *app_name=app_arg;for(const char *p=app_arg;*p;p++)if(*p=='/'||*p=='\\')app_name=p+1;
     struct guest_module app_data={.name=app_name},*app=&app_data;
     if(wine_components)
     {

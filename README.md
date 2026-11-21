@@ -52,6 +52,14 @@ currently required port code, including Windows storage, thread and exception
 integration. Extracted upstream routines and generated headers are build
 outputs rather than separately maintained implementations.
 
+Host and guest Wine code use `WINEDEBUG` with Wine's original channel parser.
+Routine NT service returns are silent by default. Set `WINEDEBUG=trace+wow`
+to trace service calls and results, `warn+wow` for unsupported NT services,
+`trace+winsock` for device IOCTL calls, or `warn+module` for native library
+load warnings. Wine's class and channel exclusions, such as
+`WINEDEBUG=-all,trace+wow`, also apply. `PROBE_WINE_DEBUG` no longer controls
+host logging.
+
 Tests are a separate Nix output:
 
 ```sh

@@ -10,6 +10,8 @@
 #include <stdio.h>
 #include "wine/afd.h"
 #include "wine/condrv.h"
+#include "wine/debug.h"
+WINE_DEFAULT_DEBUG_CHANNEL(winsock);
 extern void probe_diagnostic(const char *format,...);
 #include "native_io.h"
 extern BOOL probe_socket_ready(void);
@@ -24,6 +26,7 @@ static NTSTATUS socket_status(int error)
     return STATUS_INVALID_PARAMETER;
 }
 #include "out/wine-socket-events.inc"
+#undef FIXME
 #define FIXME(...) do {} while(0)
 #include "out/wine-socket-control.inc"
 static void *socket_extension(SOCKET socket,GUID guid)
@@ -355,7 +358,7 @@ static NTSTATUS socket_call(HANDLE file,HANDLE event,void *context,IO_STATUS_BLO
             if(!options[i].set)information=size;
             found=TRUE;break;
         }
-        if(!found){probe_diagnostic("UNSUPPORTED_WINE_DEVICE_IOCTL %08lx\n",args->code);status=STATUS_NOT_SUPPORTED;}
+        if(!found){WARN("UNSUPPORTED_WINE_DEVICE_IOCTL %08lx\n",args->code);status=STATUS_NOT_SUPPORTED;}
         break;
     }
     }
@@ -367,13 +370,12 @@ static NTSTATUS socket_call(HANDLE file,HANDLE event,void *context,IO_STATUS_BLO
 NTSTATUS WINAPI probe_NtDeviceIoControlFile(HANDLE file,HANDLE event,PIO_APC_ROUTINE apc,void *context,
                                             IO_STATUS_BLOCK *io,ULONG code,void *input,ULONG input_size,void *output,ULONG output_size)
 {
-    extern int probe_trace;
-    if(probe_trace)probe_diagnostic("DEVICE_IOCTL code=%08lx file=%p in=%lu out=%lu\n",code,file,input_size,output_size);
-    if(probe_trace&&code==IOCTL_CONDRV_WRITE_CONSOLE&&input&&!(input_size&1))
+    TRACE("DEVICE_IOCTL code=%08lx file=%p in=%lu out=%lu\n",code,file,input_size,output_size);
+    if(TRACE_ON(winsock)&&code==IOCTL_CONDRV_WRITE_CONSOLE&&input&&!(input_size&1))
     {
         char text[2048];
         int length=WideCharToMultiByte(CP_UTF8,0,input,min(input_size/sizeof(WCHAR),512),text,sizeof(text)-1,NULL,NULL);
-        if(length){text[length]=0;probe_diagnostic("CONSOLE_WRITE_TEXT=%s\n",text);}
+        if(length){text[length]=0;TRACE("CONSOLE_WRITE_TEXT=%s\n",text);}
     }
     if(!probe_socket_ready())return STATUS_DEVICE_NOT_READY;
     struct socket_io *op=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(*op));

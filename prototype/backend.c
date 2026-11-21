@@ -415,37 +415,37 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
 {
     NTSTATUS status;
     UINT n=((struct temp_frame *)TlsGetValue(temp_slot))->service;
-    if(probe_trace) probe_diagnostic("NT_CALL %x\n",n);
-    if(n==0x00d0)
+    TRACE("NT_CALL %x\n",n);
+    if(WARN_ON(wow)&&n==0x00d0)
     {
-        probe_diagnostic("HARD_ERROR status=%08x parameters=%u unicode_mask=%x option=%u\n",a[0],a[1],a[2],a[4]);
+        WARN("HARD_ERROR status=%08x parameters=%u unicode_mask=%x option=%u\n",a[0],a[1],a[2],a[4]);
         if(a[1]<=4&&a[3])for(UINT i=0;i<a[1];i++)
         {
             ULONG value=((ULONG *)(ULONG_PTR)a[3])[i];
             if(a[2]&(1u<<i))
             {
                 const UNICODE_STRING32 *str=(void *)(ULONG_PTR)value;
-                probe_diagnostic("HARD_ERROR parameter[%u]=%.*ls\n",i,str->Length/2,(WCHAR *)(ULONG_PTR)str->Buffer);
+                WARN("HARD_ERROR parameter[%u]=%.*ls\n",i,str->Length/2,(WCHAR *)(ULONG_PTR)str->Buffer);
             }
-            else probe_diagnostic("HARD_ERROR parameter[%u]=%08lx\n",i,value);
+            else WARN("HARD_ERROR parameter[%u]=%08lx\n",i,value);
         }
     }
     /* Named file, section, directory and registry opens; attributes queries;
      * registry value names; and read sizes. */
-    if(probe_trace&&(n==0x33||n==0x58||n==0x4a||n==0x55||n==0x12||n==0xb0||n==0x1d||n==0x3d||n==0xbe))
+    if(TRACE_ON(wow)&&(n==0x33||n==0x58||n==0x4a||n==0x55||n==0x12||n==0xb0||n==0x1d||n==0x3d||n==0xbe))
     {
         OBJECT_ATTRIBUTES32 *oa=(void *)(uintptr_t)a[n==0x3d||n==0xbe?0:2];UNICODE_STRING32 *name=oa?(void *)(uintptr_t)oa->ObjectName:NULL;
-        if(name)probe_diagnostic("OBJECT_NAME service=%x access=%08x root=%08lx path=%.*ls\n",n,n==0x3d||n==0xbe?0:a[1],oa->RootDirectory,name->Length/2,(WCHAR *)(uintptr_t)name->Buffer);
+        if(name)TRACE("OBJECT_NAME service=%x access=%08x root=%08lx path=%.*ls\n",n,n==0x3d||n==0xbe?0:a[1],oa->RootDirectory,name->Length/2,(WCHAR *)(uintptr_t)name->Buffer);
     }
-    if(probe_trace&&(n==0x17||n==0x60))
+    if(TRACE_ON(wow)&&(n==0x17||n==0x60))
     {
         UNICODE_STRING32 *name=(void *)(uintptr_t)a[1];
-        if(name)probe_diagnostic("VALUE_NAME service=%x key=%08x name=%.*ls\n",n,a[0],name->Length/2,(WCHAR *)(uintptr_t)name->Buffer);
+        if(name)TRACE("VALUE_NAME service=%x key=%08x name=%.*ls\n",n,a[0],name->Length/2,(WCHAR *)(uintptr_t)name->Buffer);
     }
-    if(probe_trace&&n==0x55)probe_diagnostic("CREATE_FILE disposition=%u options=%08x\n",a[7],a[8]);
-    if(probe_trace&&n==0x6)probe_diagnostic("READ_FILE handle=%08x length=%u offset=%lld\n",a[0],a[6],
+    if(n==0x55)TRACE("CREATE_FILE disposition=%u options=%08x\n",a[7],a[8]);
+    if(TRACE_ON(wow)&&n==0x6)TRACE("READ_FILE handle=%08x length=%u offset=%lld\n",a[0],a[6],
                                       a[7]?*(LONGLONG *)(uintptr_t)a[7]:-1LL);
-    if(probe_trace&&n==0x27)probe_diagnostic("SET_FILE handle=%x class=%u len=%u data=%08lx\n",a[0],a[4],a[3],*(DWORD *)(uintptr_t)a[2]);
+    if(TRACE_ON(wow)&&n==0x27)TRACE("SET_FILE handle=%x class=%u len=%u data=%08lx\n",a[0],a[4],a[3],*(DWORD *)(uintptr_t)a[2]);
     switch(n)
     {
     case 0x0005: status=wow64_NtCallbackReturn(a);break;
@@ -598,7 +598,7 @@ static NTSTATUS WINAPI dispatch_nt(UINT *a)
     case NR_DELAY: status=wow64_NtDelayExecution(a); break;
     case NR_CREATE_FILE: status=wow64_NtCreateFile(a); break;
     case NR_DELETE_FILE: status=wow64_NtDeleteFile(a); break;
-    default: probe_diagnostic("UNIMPLEMENTED NT service %x\n",n);status=STATUS_NOT_IMPLEMENTED;break;
+    default: WARN("UNIMPLEMENTED NT service %x\n",n);status=STATUS_NOT_IMPLEMENTED;break;
     }
     return status;
 }
@@ -609,7 +609,7 @@ extern void probe_gui_init(void);
 static NTSTATUS WINAPI dispatch_win32u(UINT *a)
 {
     UINT n=((struct temp_frame *)TlsGetValue(temp_slot))->service&0xfff;
-    if(probe_trace) probe_diagnostic("WIN32U_CALL %x\n",n);
+    TRACE("WIN32U_CALL %x\n",n);
     return ((NTSTATUS (WINAPI *)(UINT *))sdwhwin32.ServiceTable[n])(a);
 }
 extern NTSTATUS wow64_syscall(UINT *,ULONG_PTR);
@@ -635,9 +635,9 @@ NTSTATUS WINAPI Wow64SystemServiceEx(UINT n,UINT *a)
     while(frame.count) free(frame.blocks[--frame.count]);
     TlsSetValue(temp_slot,previous);
     if(cpu)cpu->context_state=previous_context_state==PROBE_CONTEXT_SERVICE?PROBE_CONTEXT_SERVICE:0;
-    if(probe_trace) probe_diagnostic("NT_RETURN %x status=%08lx\n",n,(unsigned long)status);
+    TRACE("NT_RETURN %x status=%08lx\n",n,(unsigned long)status);
     /* win32u services return their own result types, not NTSTATUS. */
-    if(status<0&&!(n>>12)) probe_diagnostic("NT service %x returned %08lx\n",n,(unsigned long)status);
+    if(status<0&&!(n>>12)) TRACE("NT service %x returned %08lx\n",n,(unsigned long)status);
     /* Reload SS before Wine jumps back to compatibility mode. This fixed
      * repeatable guest RET faults after native calls on the tested Windows VM. */
     __asm__ __volatile__("movw %%ss,%%ax; movw %%ax,%%ss":::"ax","memory");
@@ -684,23 +684,7 @@ NTSTATUS WINAPI probe_library_dispatch(uint64_t handle,unsigned int n,void *a)
     __asm__ __volatile__("movw %%ss,%%ax; movw %%ax,%%ss":::"ax","memory");
     return status;
 }
-/* Debug channels of the Wine code compiled into this host stay disabled
- * unless PROBE_WINE_DEBUG lists classes to print, such as "err,fixme". */
-static LONG debug_classes=-1;
-unsigned char __cdecl __wine_dbg_get_channel_flags(struct __wine_debug_channel *ch)
-{
-    (void)ch;
-    if(debug_classes<0)
-    {
-        static const char *const names[]={"fixme","err","warn","trace"};
-        char value[64];LONG classes=0;
-        DWORD length=GetEnvironmentVariableA("PROBE_WINE_DEBUG",value,sizeof(value));
-        if(length&&length<sizeof(value))
-            for(unsigned i=0;i<ARRAY_SIZE(names);i++)if(strstr(value,names[i]))classes|=1<<i;
-        InterlockedExchange(&debug_classes,classes);
-    }
-    return (unsigned char)debug_classes;
-}
+/* Wine's parser and channel lookup are shared with the guest PEB options. */
 int __cdecl __wine_dbg_header(enum __wine_debug_class c,struct __wine_debug_channel *ch,const char *f)
 {
     static const char *const names[]={"fixme","err","warn","trace"};

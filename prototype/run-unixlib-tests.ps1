@@ -18,7 +18,7 @@ $oldPath=$env:WINEDLLPATH
 $oldOverrides=$env:WINEDLLOVERRIDES
 Remove-Item Env:WINE_NATIVE_BRIDGE -ErrorAction SilentlyContinue
 $env:WINEDLLOVERRIDES='wine_unixlib_echo=b'
-function Invoke-Control([string]$name,[string]$program,[string]$arguments,[string]$cwd,[string]$paths,[int]$expectedExit,[string]$marker,[bool]$success,[string]$buildDirectory='',[string]$stderrMarker='') {
+function Invoke-Control([string]$name,[string]$program,[string]$arguments,[string]$cwd,[string]$paths,[int]$expectedExit,[string]$marker,[bool]$success,[string]$buildDirectory='',[string]$stderrMarker='',[string]$wineDebug='') {
     $env:WINEDLLPATH=$paths
     $p=New-Object System.Diagnostics.Process
     try {
@@ -27,6 +27,7 @@ function Invoke-Control([string]$name,[string]$program,[string]$arguments,[strin
         $p.StartInfo.RedirectStandardOutput=$true;$p.StartInfo.RedirectStandardError=$true
         $p.StartInfo.EnvironmentVariables.Remove('WINEBUILDDIR')
         if($buildDirectory){$p.StartInfo.EnvironmentVariables['WINEBUILDDIR']=$buildDirectory}
+        if($wineDebug){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=$wineDebug}
         [void]$p.Start();$pidValue=$p.Id
         $out=$p.StandardOutput.ReadToEndAsync();$err=$p.StandardError.ReadToEndAsync()
         $timeout=-not $p.WaitForExit(30000)
@@ -38,7 +39,7 @@ function Invoke-Control([string]$name,[string]$program,[string]$arguments,[strin
         $passed=-not $timeout -and $exit -eq $expectedExit -and $markerMatched -and $loaded
         if($success){$passed=$passed -and $stdout -match '(?m)^GUEST_EXIT code=0 .*HOST_RETURNED\r?$' -and $stdout -notmatch 'ECHO_FAILED'}
         if($stderrMarker){$passed=$passed -and $stderr -match $stderrMarker}
-        $row=[pscustomobject]@{name=$name;program=$program;arguments=$arguments;workingDirectory=$cwd;pid=$pidValue;wineDllPath=$paths;wineBuildDirectory=$buildDirectory;wineDllOverrides=$env:WINEDLLOVERRIDES;expectedExit=$expectedExit;exitCode=$exit;timedOut=$timeout;marker=$marker;markerMatched=$markerMatched;stderrMarker=$stderrMarker;wineLoadMarker=$loaded;passed=$passed;stdout=$stdout;stderr=$stderr}
+        $row=[pscustomobject]@{name=$name;program=$program;arguments=$arguments;workingDirectory=$cwd;pid=$pidValue;wineDllPath=$paths;wineBuildDirectory=$buildDirectory;wineDllOverrides=$env:WINEDLLOVERRIDES;wineDebug=$p.StartInfo.EnvironmentVariables['WINEDEBUG'];expectedExit=$expectedExit;exitCode=$exit;timedOut=$timeout;marker=$marker;markerMatched=$markerMatched;stderrMarker=$stderrMarker;wineLoadMarker=$loaded;passed=$passed;stdout=$stdout;stderr=$stderr}
         $rows.Add($row)
         [IO.File]::WriteAllText((Join-Path $results "$name.json"),(ConvertTo-Json -InputObject $row -Depth 5),$utf8)
         [IO.File]::WriteAllText((Join-Path $results "$name.stdout.txt"),$stdout,$utf8)
@@ -121,7 +122,7 @@ try {
     if(Test-Path -LiteralPath $shadow){throw 'Preserve the existing opengl32.dll'}
     Move-Item -LiteralPath $companion -Destination $shadow
     try {
-        Invoke-Control 'opengl-shadow' "$runtime/wine-host.exe" $glArguments $runtime '' 21 '(?m)^GUI_FAIL mode=opengl step=1 ' $false '' 'NATIVE_LIBRARY_SHADOWS_SYSTEM_DLL path=\S*opengl32\.dll'
+        Invoke-Control 'opengl-shadow' "$runtime/wine-host.exe" $glArguments $runtime '' 21 '(?m)^GUI_FAIL mode=opengl step=1 ' $false '' 'NATIVE_LIBRARY_SHADOWS_SYSTEM_DLL path=\S*opengl32\.dll' 'warn+module'
     } finally {Move-Item -LiteralPath $shadow -Destination $companion}
     # No shipped native library may share a base name with a system DLL.
     $system=[Environment]::SystemDirectory

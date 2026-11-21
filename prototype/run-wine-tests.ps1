@@ -35,7 +35,10 @@ foreach($name in $Tests) {
         $p.StartInfo.EnvironmentVariables['WINETEST_DEBUG']='1'
         $p.StartInfo.EnvironmentVariables.Remove('WINE_NATIVE_BRIDGE')
         $p.StartInfo.EnvironmentVariables.Remove('WINE_PROBE_TRACE')
-        if($Trace -and -not $native){$p.StartInfo.EnvironmentVariables['WINE_PROBE_TRACE']='1'}
+        if($Trace -and -not $native){
+            $p.StartInfo.EnvironmentVariables['WINE_PROBE_TRACE']='1'
+            $p.StartInfo.EnvironmentVariables['WINEDEBUG']=(@($p.StartInfo.EnvironmentVariables['WINEDEBUG'],'trace+wow','warn+wow')|Where-Object {$_}) -join ','
+        }
         foreach($variable in @('WINE_TEST_OCCUPY_BOOTSTRAP_IMAGE','WINE_TEST_OCCUPY_APPLICATION_IMAGE','WINE_TEST_OCCUPY_APPLICATION_CANONICAL_IMAGE','WINE_TEST_OCCUPY_GATE_BASE')) {
             $p.StartInfo.EnvironmentVariables.Remove($variable)
         }

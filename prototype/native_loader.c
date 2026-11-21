@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "wine/list.h"
+#include "wine/debug.h"
+WINE_DEFAULT_DEBUG_CHANNEL(module);
 #include "native_loader.h"
 extern BOOL probe_socket_builtin_unixlib(const char *,ULONGLONG *);
 extern void probe_diagnostic(const char *format,...);
@@ -37,8 +39,6 @@ typedef int sigset_t;
 #define server_enter_uninterrupted_section(lock,mask) EnterCriticalSection(lock)
 #define server_leave_uninterrupted_section(lock,mask) LeaveCriticalSection(lock)
 #define RTLD_NOW 0
-#define WARN_(channel) WARN
-#define WARN(...) do {} while(0)
 #include "out/wine-native-dos-path.inc"
 
 static WCHAR *wide_path(const char *path)
@@ -77,7 +77,7 @@ HMODULE probe_load_native_library(const WCHAR *path)
     wcscat(system,L"\\");wcscat(system,base);
     if(GetFileAttributesW(system)!=INVALID_FILE_ATTRIBUTES)
     {
-        probe_diagnostic("NATIVE_LIBRARY_SHADOWS_SYSTEM_DLL path=%ls system=%ls\n",path,system);
+        WARN("NATIVE_LIBRARY_SHADOWS_SYSTEM_DLL path=%ls system=%ls\n",path,system);
         SetLastError(ERROR_ALREADY_EXISTS);
         return NULL;
     }
@@ -88,12 +88,13 @@ static void *native_dlopen(const char *path,int flags)
     WCHAR *name=wide_path(path);(void)flags;
     /* No Wine guest DLL is passed to the Windows loader. */
     HMODULE module=name?probe_load_native_library(name):NULL;
-    if(!module)probe_diagnostic("NATIVE_UNIXLIB_LOAD_FAILED path=%s error=%lu\n",path,GetLastError());
+    if(!module)WARN("NATIVE_UNIXLIB_LOAD_FAILED path=%s error=%lu\n",path,GetLastError());
     free(name);return module;
 }
 #define dlopen native_dlopen
 #define dlsym(module,name) ((void *)GetProcAddress(module,name))
 #define dlclose(module) FreeLibrary(module)
+#define dlerror() wine_dbg_sprintf("Windows error %lu",GetLastError())
 #include "out/wine-unixlib-cache.inc"
 
 static BOOL native_unixlib_exists(const char *path)
@@ -250,7 +251,7 @@ NTSTATUS probe_builtin_unixlib(void *module,ULONGLONG *handle)
 #ifdef PROBE_TEST_NO_NATIVE_UNIXLIB
     /* Negative-control executable only. Keep the same platform fixes and
      * socket backend, with generic native unixlib lookup disabled. */
-    probe_diagnostic("MISSING_NATIVE_UNIXLIB module=%s\n",name);
+    TRACE("MISSING_NATIVE_UNIXLIB module=%s\n",name);
     return STATUS_DLL_NOT_FOUND;
 #endif
     ANSI_STRING exp_name={(USHORT)length,(USHORT)(length+1),(char *)name};
@@ -299,7 +300,7 @@ NTSTATUS probe_builtin_unixlib(void *module,ULONGLONG *handle)
         *handle=(ULONG_PTR)optional_unixlib_table;
         status=STATUS_SUCCESS;
     }
-    if(status)probe_diagnostic("MISSING_NATIVE_UNIXLIB %s status=%08lx\n",name,status);
+    if(status)TRACE("MISSING_NATIVE_UNIXLIB %s status=%08lx\n",name,status);
     return status;
 }
 void WINAPI probe_unixlib_unmap(void *module,BOOL post,NTSTATUS status)
