@@ -2,7 +2,7 @@
 #include "test_support.h"
 void WINAPI app_entry(void)
 {
-    WCHAR path[32768];
+    static WCHAR path[32768];
     DWORD length=GetEnvironmentVariableW(L"UNIXLIB_SEARCH_DLL",path,32768);
     if(length>=32768)ExitProcess(76);
     HMODULE module=LoadLibraryW(length?path:L"opengl32.dll");
