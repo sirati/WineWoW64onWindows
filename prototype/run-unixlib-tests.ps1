@@ -18,7 +18,7 @@ $oldPath=$env:WINEDLLPATH
 $oldOverrides=$env:WINEDLLOVERRIDES
 Remove-Item Env:WINE_NATIVE_BRIDGE -ErrorAction SilentlyContinue
 $env:WINEDLLOVERRIDES='wine_unixlib_echo=b'
-function Invoke-Control([string]$name,[string]$program,[string]$arguments,[string]$cwd,[string]$paths,[int]$expectedExit,[string]$marker,[bool]$success,[string]$buildDirectory='',[string]$stderrMarker='',[string]$wineDebug='') {
+function Invoke-Control([string]$name,[string]$program,[string]$arguments,[string]$cwd,[string]$paths,[int]$expectedExit,[string]$marker,[bool]$success,[string]$buildDirectory='',[string]$stderrMarker='',[string]$wineDebug='',[hashtable]$extraEnvironment=@{}) {
     $env:WINEDLLPATH=$paths
     $p=New-Object System.Diagnostics.Process
     try {
@@ -28,6 +28,7 @@ function Invoke-Control([string]$name,[string]$program,[string]$arguments,[strin
         $p.StartInfo.EnvironmentVariables.Remove('WINEBUILDDIR')
         if($buildDirectory){$p.StartInfo.EnvironmentVariables['WINEBUILDDIR']=$buildDirectory}
         if($wineDebug){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=$wineDebug}
+        foreach($key in $extraEnvironment.Keys){$p.StartInfo.EnvironmentVariables[$key]=[string]$extraEnvironment[$key]}
         if([IO.Path]::GetFileName($p.StartInfo.FileName) -like 'wine-host*.exe'){$p.StartInfo.EnvironmentVariables['WINEDEBUG']=(@($p.StartInfo.EnvironmentVariables['WINEDEBUG'],'trace+winehost')|Where-Object {$_}) -join ','}
         [void]$p.Start();$pidValue=$p.Id
         $out=$p.StandardOutput.ReadToEndAsync();$err=$p.StandardError.ReadToEndAsync()
@@ -40,7 +41,7 @@ function Invoke-Control([string]$name,[string]$program,[string]$arguments,[strin
         $passed=-not $timeout -and $exit -eq $expectedExit -and $markerMatched -and $loaded
         if($success){$passed=$passed -and ($stdout+"`n"+$stderr) -match '(?m)(?:^| )GUEST_EXIT code=0 .*HOST_RETURNED\r?$' -and $stdout -notmatch 'ECHO_FAILED'}
         if($stderrMarker){$passed=$passed -and $stderr -match $stderrMarker}
-        $row=[pscustomobject]@{name=$name;program=$program;arguments=$arguments;workingDirectory=$cwd;pid=$pidValue;wineDllPath=$paths;wineBuildDirectory=$buildDirectory;wineDllOverrides=$env:WINEDLLOVERRIDES;wineDebug=$p.StartInfo.EnvironmentVariables['WINEDEBUG'];expectedExit=$expectedExit;exitCode=$exit;timedOut=$timeout;marker=$marker;markerMatched=$markerMatched;stderrMarker=$stderrMarker;wineLoadMarker=$loaded;passed=$passed;stdout=$stdout;stderr=$stderr}
+        $row=[pscustomobject]@{name=$name;program=$program;arguments=$arguments;workingDirectory=$cwd;pid=$pidValue;wineDllPath=$paths;wineBuildDirectory=$buildDirectory;wineDllOverrides=$env:WINEDLLOVERRIDES;wineDebug=$p.StartInfo.EnvironmentVariables['WINEDEBUG'];extraEnvironment=$extraEnvironment;expectedExit=$expectedExit;exitCode=$exit;timedOut=$timeout;marker=$marker;markerMatched=$markerMatched;stderrMarker=$stderrMarker;wineLoadMarker=$loaded;passed=$passed;stdout=$stdout;stderr=$stderr}
         $rows.Add($row)
         [IO.File]::WriteAllText((Join-Path $results "$name.json"),(ConvertTo-Json -InputObject $row -Depth 5),$utf8)
         [IO.File]::WriteAllText((Join-Path $results "$name.stdout.txt"),$stdout,$utf8)
@@ -113,6 +114,19 @@ try {
     Copy-Item -LiteralPath $app -Destination (Join-Path $missing 'wine-unixlib-echo-app.exe') -Force
     $missingArguments='--wine-components "'+(Join-Path $missing 'wine-unixlib-echo-app.exe')+'"'
     Invoke-Control 'missing-native' "$runtime/wine-host.exe" $missingArguments $runtime "$split/pe" 2 '(?m)^ECHO_FAILED load status=0xc0000135\r?$' $false
+    # A PE-only directory must still find its companion in Wine's packaged
+    # default directory, including the OpenGL builtin's native .so.
+    $alternate=Join-Path $results 'alternate/stock-wine/i386-windows'
+    New-Item -ItemType Directory -Force $alternate|Out-Null
+    $alternateOpenGl=Join-Path $alternate 'opengl32.dll'
+    Copy-Item -LiteralPath (Join-Path $runtime 'stock-wine/opengl32.dll') -Destination $alternateOpenGl
+    Invoke-Control 'packaged-opengl' "$runtime/wine-host.exe" '--wine-components guest/unixlib_search32.exe' $runtime '' 0 '(?m)^UNIXLIB_SEARCH_OK\r?$' $true '' '' '' @{UNIXLIB_SEARCH_DLL=$alternateOpenGl}
+    $packagedEcho=Join-Path $runtime 'stock-wine/x86_64-native/wine_unixlib_echo.dll'
+    if(Test-Path -LiteralPath $packagedEcho){throw 'Preserve existing packaged echo companion'}
+    Copy-Item -LiteralPath "$echo/x86_64-native/wine_unixlib_echo.dll" -Destination $packagedEcho
+    try {
+        Invoke-Control 'packaged-echo' "$runtime/wine-host.exe" $missingArguments $runtime "$split/pe" 0 '(?m)^ECHO_OK calls=20\r?$' $true
+    } finally {Remove-Item -LiteralPath $packagedEcho}
     # Wine's opengl32 companion ships as opengl32.so. Under its PE name it
     # would shadow the system opengl32.dll, so the loader refuses it and
     # opengl32's process attach fails (negative control).
