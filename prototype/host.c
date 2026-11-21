@@ -5,6 +5,8 @@
 #define WIN32_NO_STATUS
 #include <windows.h>
 #include <winternl.h>
+#include "wine/debug.h"
+WINE_DEFAULT_DEBUG_CHANNEL(wow);
 #include "shared.h"
 #include "cpu_host.h"
 #include "native_threads.h"
@@ -208,6 +210,9 @@ static void *get_rva(void *module,DWORD offset) { return (BYTE *)module+offset; 
 #define LdrProcessRelocationBlock bootstrap_LdrProcessRelocationBlock
 #define NtProtectVirtualMemory bootstrap_relocation_protect
 #define page_size 4096
+#undef TRACE
+#undef WARN
+#undef FIXME
 #define TRACE(...) do {} while(0)
 #define WARN(...) do {} while(0)
 #define FIXME(...) do {} while(0)
@@ -654,10 +659,10 @@ static void init_guest_teb(BYTE *image)
       entry.HighWord.Bits.Type=0x13;entry.HighWord.Bits.Dpl=3;entry.HighWord.Bits.Pres=1;entry.HighWord.Bits.Default_Big=1;
       info.Start=8;info.Length=sizeof(entry);info.Entries[0]=entry;
       st=NtSetInformationProcess(GetCurrentProcess(),10,&info,sizeof(info));
-      fprintf(stderr,"PROCESS_LDT status=%08lx\n",(unsigned long)st);
+      WINE_TRACE("PROCESS_LDT status=%08lx\n",(unsigned long)st);
       { struct { ULONG Selector; LDT_ENTRY Entry; } ti={0}; ti.Selector=0x0f;ti.Entry=entry;
         st=NtSetInformationThread(GetCurrentThread(),6,&ti,sizeof(ti));
-        fprintf(stderr,"THREAD_DESCRIPTOR_SET status=%08lx\n",(unsigned long)st); }
+        WINE_TRACE("THREAD_DESCRIPTOR_SET status=%08lx\n",(unsigned long)st); }
     }
 }
 static void report_mitigations(void)
