@@ -12,9 +12,10 @@ The build extracts Wine 11 WoW64 conversion and dispatch code, cross-builds Wine
 Run an unmodified application through Wine:
 
 Native x86 guest DLLs use the per-runtime `native-wine\\i386-windows` directory.
-It is part of Wine's ordinary DLL path, between the caller's `WINEDLLPATH` and
-the packaged `stock-wine` directory. Put vendor DLLs there and select them with
-Wine's normal `WINEDLLOVERRIDES=name=n,b` syntax or the
+It is a candidate in Wine's ordinary DLL path, between the caller's
+`WINEDLLPATH` and the packaged `stock-wine` directory. It does not change
+Wine's per-DLL load-order policy. Put a vendor DLL there and select only that
+name with Wine's normal `WINEDLLOVERRIDES=name=n,b` syntax or the
 `HKCU\\Software\\Wine\\DllOverrides` key. Register COM classes through the
 packaged `stock-wine\\regsvr32.exe` under `wine-host.exe`; the port's registry
 adapter writes the guest's 32-bit view. This is the layout used for Microsoft

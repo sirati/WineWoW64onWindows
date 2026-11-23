@@ -160,11 +160,13 @@ void probe_loader_init(void)
     dll_path_environment=environment_path(L"WINEDLLPATH");
     build_dir=environment_path(L"WINEBUILDDIR");
     if(!dll_dir)ExitProcess(94);
-    /* Keep the caller's WINEDLLPATH first, then search the install's native
-     * guest-DLL root and Wine's builtin root.  Wine's original loader uses
-     * this same ordered path for WINEDLLOVERRIDES and DllOverrides, so an
-     * installer can place 32-bit vendor DLLs in native-wine/i386-windows and
-     * select them with the normal "name=n,b" setting. */
+    /* Keep the caller's WINEDLLPATH first, then add the install's native
+     * guest-DLL root and Wine's builtin root as search locations. This does
+     * not change Wine's per-DLL load-order policy: the original
+     * WINEDLLOVERRIDES and DllOverrides parser still decides whether a
+     * matching builtin or native image wins. An installer can therefore put
+     * one vendor DLL in native-wine/i386-windows and select only that name
+     * with the normal "name=n,b" setting. */
     char *native=build_path(dll_dir,"native-wine");
     char *packaged=build_path(dll_dir,"stock-wine");
     if(!native||!packaged)ExitProcess(94);
