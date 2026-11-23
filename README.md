@@ -82,7 +82,12 @@ $env:WINEDLLOVERRIDES = 'dpnet=n,b'
 ```
 
 The same command applies to `dplayx.dll`, `dpnhpast.dll`, and
-`dpnhupnp.dll`. No files in the Windows system directory are replaced.
+`dpnhupnp.dll`. To persist the override instead of setting it for each launch,
+write a `.reg` file with `[HKEY_CURRENT_USER\\Software\\Wine\\DllOverrides]`
+values of `"dplayx"="native"`, `"dpnet"="native"`,
+`"dpnhpast"="native"`, and `"dpnhupnp"="native"`, then import it with the
+packaged `regedit.exe` through `wine-host.exe`. No files in the Windows system
+directory are replaced.
 
 Tests are a separate Nix output:
 
