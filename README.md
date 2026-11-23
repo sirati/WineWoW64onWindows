@@ -66,9 +66,9 @@ Native 32-bit guest DLLs that must override a Wine builtin belong in
 `runtime/native-wine/i386-windows/`. The host adds `native-wine` to Wine's
 normal DLL search path after the caller's `WINEDLLPATH` and before
 `stock-wine`; the x86 loader therefore applies its ordinary `WINEDLLOVERRIDES`
-and `HKCU\\Software\\Wine\\DllOverrides` rules. For example, install
-`dpnet.dll` and its DirectPlay companions in that directory and use
-`WINEDLLOVERRIDES=dpnet,dplayx,dpnhpast,dpnhupnp,dpnsvr,dpwsockx,dpmodemx=n,b`.
+and `HKCU\\Software\\Wine\\DllOverrides` rules. For example, install the
+DirectPlay files in that directory and use
+`WINEDLLOVERRIDES=dplaysvr.exe,dplayx,dpmodemx,dpnet,dpnhpast,dpnhupnp,dpnsvr.exe,dpwsockx=n,b`.
 Register COM classes and service providers with the packaged Wine
 `regsvr32.exe`, still through the port, so writes go through the guest's
 32-bit registry view:
