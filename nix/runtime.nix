@@ -93,7 +93,7 @@ in stdenv.mkDerivation {
   installPhase = ''
     runHook preInstall
     mkdir -p $out
-    mkdir -p $out/runtime/guest $out/docs $tests/prototype
+    mkdir -p $out/runtime/guest $out/runtime/native-wine/i386-windows $out/docs $tests/prototype
     cp prototype/out/wine-host.exe $out/runtime/
     cp -R prototype/out/stock-wine $out/runtime/
     cp prototype/out/guest/{ntdll,kernel32,bridge_kernel32,bootstrap32,transition32}.dll $out/runtime/guest/

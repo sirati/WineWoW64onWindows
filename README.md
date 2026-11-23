@@ -62,6 +62,28 @@ load warnings. Wine's class and channel exclusions, such as
 `WINEDEBUG=-all,trace+wow`, also apply. `PROBE_WINE_DEBUG` no longer controls
 host logging.
 
+Native 32-bit guest DLLs that must override a Wine builtin belong in
+`runtime/native-wine/i386-windows/`. The host adds `native-wine` to Wine's
+normal DLL search path after the caller's `WINEDLLPATH` and before
+`stock-wine`; the x86 loader therefore applies its ordinary `WINEDLLOVERRIDES`
+and `HKCU\\Software\\Wine\\DllOverrides` rules. For example, install
+`dpnet.dll` and its DirectPlay companions in that directory and use
+`WINEDLLOVERRIDES=dpnet,dplayx,dpnhpast,dpnhupnp,dpnsvr,dpwsockx,dpmodemx=n,b`.
+Register COM classes and service providers with the packaged Wine
+`regsvr32.exe`, still through the port, so writes go through the guest's
+32-bit registry view:
+
+```powershell
+$runtime = 'C:\Games\civ3r-wow64\runtime'
+$dll = "$runtime\native-wine\i386-windows\dpnet.dll"
+$env:WINEDLLPATH = "$runtime\native-wine"
+$env:WINEDLLOVERRIDES = 'dpnet=n,b'
+& "$runtime\wine-host.exe" --wine-components "$runtime\stock-wine\regsvr32.exe" /s $dll
+```
+
+The same command applies to `dplayx.dll`, `dpnhpast.dll`, and
+`dpnhupnp.dll`. No files in the Windows system directory are replaced.
+
 Tests are a separate Nix output:
 
 ```sh

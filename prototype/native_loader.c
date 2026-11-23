@@ -160,21 +160,24 @@ void probe_loader_init(void)
     dll_path_environment=environment_path(L"WINEDLLPATH");
     build_dir=environment_path(L"WINEBUILDDIR");
     if(!dll_dir)ExitProcess(94);
-    /* The packaged Wine directory contains both the x86 PEs and their
-     * native companions. Keep it in Wine's ordinary path search even when
-     * the mapped image name names another builtin directory or is unavailable.
-     * Preserve the caller's WINEDLLPATH order and the host-directory lookup. */
+    /* Keep the caller's WINEDLLPATH first, then search the install's native
+     * guest-DLL root and Wine's builtin root.  Wine's original loader uses
+     * this same ordered path for WINEDLLOVERRIDES and DllOverrides, so an
+     * installer can place 32-bit vendor DLLs in native-wine/i386-windows and
+     * select them with the normal "name=n,b" setting. */
+    char *native=build_path(dll_dir,"native-wine");
     char *packaged=build_path(dll_dir,"stock-wine");
-    if(!packaged)ExitProcess(94);
-    if(dll_path_environment&&dll_path_environment[0])
-    {
-        size_t length=strlen(dll_path_environment),extra=strlen(packaged);
-        char *paths=realloc(dll_path_environment,length+extra+2);
-        if(!paths)ExitProcess(94);
-        paths[length]=';';memcpy(paths+length+1,packaged,extra+1);
-        dll_path_environment=paths;free(packaged);
-    }
-    else {free(dll_path_environment);dll_path_environment=packaged;}
+    if(!native||!packaged)ExitProcess(94);
+    size_t native_length=strlen(native),packaged_length=strlen(packaged);
+    size_t old_length=dll_path_environment?strlen(dll_path_environment):0;
+    char *paths=malloc(old_length+(old_length?1:0)+native_length+1+packaged_length+1);
+    if(!paths)ExitProcess(94);
+    char *cursor=paths;
+    if(old_length){memcpy(cursor,dll_path_environment,old_length);cursor+=old_length;*cursor++=';';}
+    memcpy(cursor,native,native_length);cursor+=native_length;*cursor++=';';
+    memcpy(cursor,packaged,packaged_length+1);
+    free(dll_path_environment);free(native);free(packaged);
+    dll_path_environment=paths;
     InitializeCriticalSection(&virtual_mutex);
     for(unsigned i=0;i<ARRAY_SIZE(optional_unixlib_table);i++)
         optional_unixlib_table[i]=(void *)optional_unixlib_call;
